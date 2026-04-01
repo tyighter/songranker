@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 import math
+import random
 import secrets
 from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
@@ -464,8 +465,7 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
         ),
     )
 
-    best_pair_ids: tuple[int, int] | None = None
-    best_key: tuple[float, int, int] | None = None
+    candidate_pairs: list[tuple[tuple[int, int], tuple[float, int, int]]] = []
     anchor_limit = min(len(anchor_ids), 50)
     neighbor_window = min(max(len(song_ids) // 10, 10), 100)
     for song_a_id in anchor_ids[:anchor_limit]:
@@ -484,13 +484,14 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
             closeness = abs(score_a - score_b)
             prior_matches = vote_counts.get(pair_key, 0)
             exposure_penalty = song_match_counts.get(song_b_id, 0) * 0.01
-            rank_key = (closeness + (prior_matches * 25) + exposure_penalty, pair_key[0], pair_key[1])
+            same_artist_penalty = 200 if songs_by_id[song_a_id].artist == songs_by_id[song_b_id].artist else 0
+            rank_key = (closeness + (prior_matches * 25) + exposure_penalty + same_artist_penalty, pair_key[0], pair_key[1])
+            candidate_pairs.append((pair_key, rank_key))
 
-            if best_key is None or rank_key < best_key:
-                best_key = rank_key
-                best_pair_ids = pair_key
-
-    if best_pair_ids:
+    if candidate_pairs:
+        candidate_pairs.sort(key=lambda pair: pair[1])
+        randomized_pool = candidate_pairs[: min(len(candidate_pairs), 20)]
+        best_pair_ids = random.choice(randomized_pool)[0]
         elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
         logger.info(
             "Pair selected | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
