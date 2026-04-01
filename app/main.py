@@ -377,7 +377,6 @@ async def setup_guard(request: StarletteRequest, call_next):
     if request.url.path.startswith("/static") or request.url.path in {
         "/health",
         "/setup",
-        "/signin",
     } or request.url.path.startswith("/api/setup") or request.url.path.startswith("/api/auth"):
         return await call_next(request)
 
@@ -422,27 +421,15 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 
 @app.get("/signin", response_class=HTMLResponse)
 def signin_page(request: StarletteRequest, db: Session = Depends(get_db)):
-    users = db.query(User).order_by(User.username.asc()).all()
-    return templates.TemplateResponse(
-        "signin.html",
-        {
-            "request": request,
-            "users": users,
-            "notice": "Login is lightweight and not secure yet; use only on trusted/local networks.",
-        },
-    )
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: StarletteRequest, db: Session = Depends(get_db)):
     session = _current_session(db, request)
-    if session is None:
-        return RedirectResponse(url="/signin", status_code=303)
-
-    current_user = db.query(User).filter(User.id == session.user_id).first()
-    if current_user is None:
-        return RedirectResponse(url="/signin", status_code=303)
-
+    current_user = None
+    if session is not None:
+        current_user = db.query(User).filter(User.id == session.user_id).first()
     users = db.query(User).order_by(User.username.asc()).all()
 
     return templates.TemplateResponse(
@@ -452,6 +439,7 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             "app_host": settings.app_host,
             "app_port": settings.app_port,
             "current_user": current_user,
+            "is_authenticated": current_user is not None,
             "users": users,
             "notice": "Auth is intentionally lightweight and not secure yet.",
         },
@@ -514,7 +502,7 @@ def create_user(
 
     db.add(User(username=username, email=email, password_hash=_hash_password(password)))
     db.commit()
-    return RedirectResponse(url="/signin", status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.post("/api/auth/signin")
@@ -552,7 +540,7 @@ def signout(request: StarletteRequest, db: Session = Depends(get_db)):
         db.delete(session)
         db.commit()
 
-    response = RedirectResponse(url="/signin", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
     _clear_session_cookie(response)
     return response
 

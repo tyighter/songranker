@@ -12,6 +12,7 @@
     <p>App bound to {{ app_host }}:{{ app_port }}</p>
     <p class="warning">{{ notice }}</p>
 
+    {% if is_authenticated %}
     <section class="panel">
       <h2>Session</h2>
       <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
@@ -33,7 +34,15 @@
         <button type="submit">Switch user</button>
       </form>
     </section>
+    {% else %}
+    <section class="panel">
+      <h2>Sign in required</h2>
+      <p>Sign in to rank songs and view your rating history.</p>
+      <button type="button" id="open-signin-modal">Sign in / create account</button>
+    </section>
+    {% endif %}
 
+    {% if is_authenticated %}
     <section class="panel">
       <h2>Rating Pool Filters</h2>
       <div class="grid-3">
@@ -115,190 +124,289 @@
         <tbody id="song-matchups-body"></tbody>
       </table>
     </section>
+    {% endif %}
   </main>
 
+  <div class="modal-backdrop" id="signin-modal" aria-hidden="true" {% if is_authenticated %}hidden{% endif %}>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signin-modal-title">
+      <button type="button" class="modal-close" id="close-signin-modal" aria-label="Close sign-in dialog">×</button>
+      <h2 id="signin-modal-title">Sign in</h2>
+      <form method="post" action="/api/auth/signin">
+        <label>Username <input type="text" name="username" required /></label>
+        <label>Password <input type="password" name="password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+
+      <h3>Create user</h3>
+      <form method="post" action="/api/auth/create-user">
+        <label>Username <input type="text" name="username" required /></label>
+        <label>Email <input type="email" name="email" required /></label>
+        <label>Password <input type="password" name="password" required minlength="6" /></label>
+        <button type="submit">Create user</button>
+      </form>
+
+      <h3>Existing users</h3>
+      <ul>
+        {% for user in users %}
+        <li>{{ user.username }} ({{ user.email }})</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
   <script>
-    const statusEl = document.getElementById("status");
-    const pairPanel = document.getElementById("pair-panel");
-    const pairContent = document.getElementById("pair-content");
-    const artistFilterEl = document.getElementById("artist-filter");
-    const albumFilterEl = document.getElementById("album-filter");
-    const decadeFilterEl = document.getElementById("decade-filter");
-    const rankingsBodyEl = document.getElementById("rankings-body");
-    const historyBodyEl = document.getElementById("history-body");
-    const songMatchupsBodyEl = document.getElementById("song-matchups-body");
+    const isAuthenticated = {{ is_authenticated|tojson }};
+    const signinModal = document.getElementById("signin-modal");
+    const closeSigninModalBtn = document.getElementById("close-signin-modal");
+    const openSigninModalBtn = document.getElementById("open-signin-modal");
+    let lastFocusedElement = null;
 
-    let currentPair = null;
-    let currentFilters = {};
-    let rankingSort = { sort_by: "rank", sort_dir: "asc" };
-
-    function collectFilters() {
-      const filters = {};
-      if (artistFilterEl.value.trim()) filters.artist = artistFilterEl.value.trim();
-      if (albumFilterEl.value.trim()) filters.album = albumFilterEl.value.trim();
-      if (decadeFilterEl.value.trim()) filters.decade = decadeFilterEl.value.trim();
-      return filters;
+    function getFocusableElements() {
+      if (!signinModal) return [];
+      return Array.from(signinModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => !el.disabled && el.getAttribute("aria-hidden") !== "true");
     }
 
-    function paramsFromObject(values) {
-      const params = new URLSearchParams();
-      Object.entries(values).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== "") params.set(key, value);
+    function openSigninModal() {
+      if (!signinModal) return;
+      lastFocusedElement = document.activeElement;
+      signinModal.hidden = false;
+      signinModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      const focusable = getFocusableElements();
+      if (focusable.length) focusable[1] ? focusable[1].focus() : focusable[0].focus();
+    }
+
+    function closeSigninModal() {
+      if (!signinModal || !isAuthenticated) return;
+      signinModal.hidden = true;
+      signinModal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
+        lastFocusedElement.focus();
+      }
+    }
+
+    function handleModalKeydown(event) {
+      if (!signinModal || signinModal.hidden) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSigninModal();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = getFocusableElements();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    if (signinModal) {
+      signinModal.addEventListener("click", (event) => {
+        if (event.target === signinModal) closeSigninModal();
       });
-      return params.toString();
+      signinModal.addEventListener("keydown", handleModalKeydown);
+      document.addEventListener("keydown", handleModalKeydown);
     }
 
-    function renderPair(payload) {
-      currentPair = payload.pair;
-      pairContent.innerHTML = payload.pair.map((song) => `
-        <div class="song-card">
-          <h3>${song.title}</h3>
-          <p>${song.artist}</p>
-          <p>${song.album || ""} ${song.year || ""}</p>
-          <small>ID: ${song.song_id} · Score: ${song.score}</small>
-        </div>
-      `).join("");
-      pairPanel.hidden = false;
+    if (openSigninModalBtn) openSigninModalBtn.addEventListener("click", openSigninModal);
+    if (closeSigninModalBtn) closeSigninModalBtn.addEventListener("click", closeSigninModal);
+
+    if (!isAuthenticated && signinModal && !signinModal.hidden) {
+      openSigninModal();
     }
 
-    async function loadNextPair() {
-      currentFilters = collectFilters();
-      statusEl.textContent = "Loading next pair...";
-      pairPanel.hidden = true;
+    if (isAuthenticated) {
+      const statusEl = document.getElementById("status");
+      const pairPanel = document.getElementById("pair-panel");
+      const pairContent = document.getElementById("pair-content");
+      const artistFilterEl = document.getElementById("artist-filter");
+      const albumFilterEl = document.getElementById("album-filter");
+      const decadeFilterEl = document.getElementById("decade-filter");
+      const rankingsBodyEl = document.getElementById("rankings-body");
+      const historyBodyEl = document.getElementById("history-body");
+      const songMatchupsBodyEl = document.getElementById("song-matchups-body");
 
-      const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        statusEl.textContent = body.detail || "No pair available.";
-        return;
+      let currentPair = null;
+      let currentFilters = {};
+      let rankingSort = { sort_by: "rank", sort_dir: "asc" };
+
+      function collectFilters() {
+        const filters = {};
+        if (artistFilterEl.value.trim()) filters.artist = artistFilterEl.value.trim();
+        if (albumFilterEl.value.trim()) filters.album = albumFilterEl.value.trim();
+        if (decadeFilterEl.value.trim()) filters.decade = decadeFilterEl.value.trim();
+        return filters;
       }
 
-      const payload = await response.json();
-      renderPair(payload);
-      statusEl.textContent = "Vote to update ranking.";
-    }
-
-    async function submitVote(winnerIndex) {
-      if (!currentPair) return;
-      const winner = currentPair[winnerIndex];
-      const loser = currentPair[winnerIndex === 0 ? 1 : 0];
-      const response = await fetch("/api/rate/vote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner_song_id: winner.song_id, loser_song_id: loser.song_id, filters: currentFilters }),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        statusEl.textContent = body.detail || "Vote failed.";
-        return;
+      function paramsFromObject(values) {
+        const params = new URLSearchParams();
+        Object.entries(values).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") params.set(key, value);
+        });
+        return params.toString();
       }
 
-      const payload = await response.json();
-      statusEl.textContent = `Vote saved. ${payload.winner.title} is now ${payload.winner.score}.`;
-      await Promise.all([loadNextPair(), loadRankings(), loadHistory()]);
-    }
-
-    async function loadRankings() {
-      const params = {
-        ...collectFilters(),
-        ...rankingSort,
-        page: 1,
-        page_size: 100,
-      };
-      const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
-      const payload = await response.json();
-      rankingsBodyEl.innerHTML = (payload.rows || []).map((row) => `
-        <tr>
-          <td>${row.rank}</td>
-          <td>${row.score}</td>
-          <td>${row.artist}</td>
-          <td>${row.album || ""}</td>
-          <td>${row.year || ""}</td>
-          <td>${row.title}</td>
-        </tr>
-      `).join("");
-    }
-
-    function collectHistoryFilters() {
-      return {
-        artist: document.getElementById("history-artist").value.trim(),
-        album: document.getElementById("history-album").value.trim(),
-        decade: document.getElementById("history-decade").value.trim(),
-        date_from: document.getElementById("history-date-from").value,
-        date_to: document.getElementById("history-date-to").value,
-        page: 1,
-        page_size: 50,
-      };
-    }
-
-    async function loadHistory() {
-      const response = await fetch(`/api/history?${paramsFromObject(collectHistoryFilters())}`);
-      const payload = await response.json();
-      historyBodyEl.innerHTML = (payload.rows || []).map((row) => `
-        <tr>
-          <td>${row.winner.title} — ${row.winner.artist}</td>
-          <td>${row.loser.title} — ${row.loser.artist}</td>
-          <td>${new Date(row.timestamp).toLocaleString()}</td>
-          <td><code>${JSON.stringify(row.context)}</code></td>
-        </tr>
-      `).join("");
-    }
-
-    async function loadSongDetail() {
-      const id = document.getElementById("song-detail-id").value;
-      if (!id) return;
-      const response = await fetch(`/api/history/song/${id}?recent_limit=15`);
-      if (!response.ok) {
-        document.getElementById("song-detail-summary").textContent = "Song not found.";
-        songMatchupsBodyEl.innerHTML = "";
-        return;
+      function renderPair(payload) {
+        currentPair = payload.pair;
+        pairContent.innerHTML = payload.pair.map((song) => `
+          <div class="song-card">
+            <h3>${song.title}</h3>
+            <p>${song.artist}</p>
+            <p>${song.album || ""} ${song.year || ""}</p>
+            <small>ID: ${song.song_id} · Score: ${song.score}</small>
+          </div>
+        `).join("");
+        pairPanel.hidden = false;
       }
-      const payload = await response.json();
-      document.getElementById("song-detail-summary").textContent = `${payload.song.title} (${payload.song.artist}) current score: ${payload.current_score}`;
-      songMatchupsBodyEl.innerHTML = payload.recent_matchups.map((match) => `
-        <tr>
-          <td>${match.result}</td>
-          <td>${match.opponent.title} — ${match.opponent.artist}</td>
-          <td>${new Date(match.timestamp).toLocaleString()}</td>
-          <td><code>${JSON.stringify(match.context)}</code></td>
-        </tr>
-      `).join("");
-    }
 
-    document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
-    document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
-    document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
-    document.getElementById("load-rankings").addEventListener("click", loadRankings);
-    document.getElementById("load-history").addEventListener("click", loadHistory);
-    document.getElementById("load-song-detail").addEventListener("click", loadSongDetail);
+      async function loadNextPair() {
+        currentFilters = collectFilters();
+        statusEl.textContent = "Loading next pair...";
+        pairPanel.hidden = true;
 
-    document.querySelectorAll(".sort-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const sortBy = btn.dataset.sort;
-        if (rankingSort.sort_by === sortBy) {
-          rankingSort.sort_dir = rankingSort.sort_dir === "asc" ? "desc" : "asc";
-        } else {
-          rankingSort.sort_by = sortBy;
-          rankingSort.sort_dir = "asc";
+        const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          statusEl.textContent = body.detail || "No pair available.";
+          return;
         }
-        await loadRankings();
-      });
-    });
 
-    document.getElementById("resync-btn").addEventListener("click", async () => {
-      statusEl.textContent = "Running Plex resync...";
-      const response = await fetch("/api/plex/resync", { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        statusEl.textContent = body.detail || "Resync failed.";
-        return;
+        const payload = await response.json();
+        renderPair(payload);
+        statusEl.textContent = "Vote to update ranking.";
       }
-      statusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
-    });
 
-    loadRankings();
-    loadHistory();
+      async function submitVote(winnerIndex) {
+        if (!currentPair) return;
+        const winner = currentPair[winnerIndex];
+        const loser = currentPair[winnerIndex === 0 ? 1 : 0];
+        const response = await fetch("/api/rate/vote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ winner_song_id: winner.song_id, loser_song_id: loser.song_id, filters: currentFilters }),
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          statusEl.textContent = body.detail || "Vote failed.";
+          return;
+        }
+
+        const payload = await response.json();
+        statusEl.textContent = `Vote saved. ${payload.winner.title} is now ${payload.winner.score}.`;
+        await Promise.all([loadNextPair(), loadRankings(), loadHistory()]);
+      }
+
+      async function loadRankings() {
+        const params = {
+          ...collectFilters(),
+          ...rankingSort,
+          page: 1,
+          page_size: 100,
+        };
+        const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
+        const payload = await response.json();
+        rankingsBodyEl.innerHTML = (payload.rows || []).map((row) => `
+          <tr>
+            <td>${row.rank}</td>
+            <td>${row.score}</td>
+            <td>${row.artist}</td>
+            <td>${row.album || ""}</td>
+            <td>${row.year || ""}</td>
+            <td>${row.title}</td>
+          </tr>
+        `).join("");
+      }
+
+      function collectHistoryFilters() {
+        return {
+          artist: document.getElementById("history-artist").value.trim(),
+          album: document.getElementById("history-album").value.trim(),
+          decade: document.getElementById("history-decade").value.trim(),
+          date_from: document.getElementById("history-date-from").value,
+          date_to: document.getElementById("history-date-to").value,
+          page: 1,
+          page_size: 50,
+        };
+      }
+
+      async function loadHistory() {
+        const response = await fetch(`/api/history?${paramsFromObject(collectHistoryFilters())}`);
+        const payload = await response.json();
+        historyBodyEl.innerHTML = (payload.rows || []).map((row) => `
+          <tr>
+            <td>${row.winner.title} — ${row.winner.artist}</td>
+            <td>${row.loser.title} — ${row.loser.artist}</td>
+            <td>${new Date(row.timestamp).toLocaleString()}</td>
+            <td><code>${JSON.stringify(row.context)}</code></td>
+          </tr>
+        `).join("");
+      }
+
+      async function loadSongDetail() {
+        const id = document.getElementById("song-detail-id").value;
+        if (!id) return;
+        const response = await fetch(`/api/history/song/${id}?recent_limit=15`);
+        if (!response.ok) {
+          document.getElementById("song-detail-summary").textContent = "Song not found.";
+          songMatchupsBodyEl.innerHTML = "";
+          return;
+        }
+        const payload = await response.json();
+        document.getElementById("song-detail-summary").textContent = `${payload.song.title} (${payload.song.artist}) current score: ${payload.current_score}`;
+        songMatchupsBodyEl.innerHTML = payload.recent_matchups.map((match) => `
+          <tr>
+            <td>${match.result}</td>
+            <td>${match.opponent.title} — ${match.opponent.artist}</td>
+            <td>${new Date(match.timestamp).toLocaleString()}</td>
+            <td><code>${JSON.stringify(match.context)}</code></td>
+          </tr>
+        `).join("");
+      }
+
+      document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
+      document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
+      document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
+      document.getElementById("load-rankings").addEventListener("click", loadRankings);
+      document.getElementById("load-history").addEventListener("click", loadHistory);
+      document.getElementById("load-song-detail").addEventListener("click", loadSongDetail);
+
+      document.querySelectorAll(".sort-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const sortBy = btn.dataset.sort;
+          if (rankingSort.sort_by === sortBy) {
+            rankingSort.sort_dir = rankingSort.sort_dir === "asc" ? "desc" : "asc";
+          } else {
+            rankingSort.sort_by = sortBy;
+            rankingSort.sort_dir = "asc";
+          }
+          await loadRankings();
+        });
+      });
+
+      document.getElementById("resync-btn").addEventListener("click", async () => {
+        statusEl.textContent = "Running Plex resync...";
+        const response = await fetch("/api/plex/resync", { method: "POST" });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = body.detail || "Resync failed.";
+          return;
+        }
+        statusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
+      });
+
+      loadRankings();
+      loadHistory();
+    }
   </script>
 </body>
 </html>
