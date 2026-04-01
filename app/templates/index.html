@@ -17,6 +17,7 @@
       <label>Artist filter <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
       <label>Title contains <input type="text" id="title-filter" placeholder="optional text" /></label>
       <button id="next-pair-btn">Get next pair</button>
+      <button id="resync-btn" type="button">Manual Plex resync</button>
       <p id="status"></p>
     </section>
 
@@ -124,6 +125,17 @@
     document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
     document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
     document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
+
+    document.getElementById("resync-btn").addEventListener("click", async () => {
+      statusEl.textContent = "Running Plex resync...";
+      const response = await fetch("/api/plex/resync", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        statusEl.textContent = body.detail || "Resync failed.";
+        return;
+      }
+      statusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
+    });
   </script>
 </body>
 </html>
