@@ -2,9 +2,9 @@
 
 This scaffold includes:
 
-- FastAPI backend with a minimal server-rendered frontend.
+- FastAPI backend with server-rendered setup and ranking pages.
 - PostgreSQL database.
-- Alembic migrations for `users`, `songs`, `pairwise_votes`, and `rating_scores`.
+- Alembic migrations for users, songs, pairwise votes, rating scores, setup settings, and cached Plex metadata.
 - Health check endpoint at `/health`.
 
 ## Quick start
@@ -20,17 +20,24 @@ The app will be available at:
 - http://0.0.0.0:2112
 - http://localhost:2112
 
-### 2) Verify health
+### 2) Run migrations
 
 ```bash
-curl http://localhost:2112/health
+docker compose exec app alembic upgrade head
 ```
 
-Expected response:
+### 3) Open setup wizard
 
-```json
-{"status":"ok"}
-```
+On first launch, SongRanker redirects all app traffic to `/setup` until initialization is complete.
+
+Setup steps:
+
+1. Create the first local user.
+2. Save Plex URL and token.
+3. Pick Plex music library section.
+4. Run initial import to cache metadata locally.
+
+Imported metadata includes `title`, `artist`, `album`, `year`, `decade`, and `plex_rating_key`.
 
 ## Environment variables
 
@@ -44,12 +51,14 @@ The app reads the following DB environment variables:
 
 By default, `docker-compose.yml` wires these to the `db` service.
 
-
-## Rating API
+## APIs
 
 - `GET /api/rate/next?user_id=<id>&artist=<optional>&title_query=<optional>&song_ids=<optional_csv>`
   - Returns the next deterministic comparison pair for the user, with optional active filters.
 - `POST /api/rate/vote`
   - Body: `user_id`, `winner_song_id`, `loser_song_id`, and `filters` context.
   - Applies an Elo update to global per-user song ratings, records vote history, and stores rating snapshots for the vote.
+- `POST /api/plex/resync`
+  - Manually refreshes cached song metadata from Plex so ranking can continue even when Plex is temporarily unavailable.
 
+A periodic background job also attempts Plex resync hourly once setup is complete.

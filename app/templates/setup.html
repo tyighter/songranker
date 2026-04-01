@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SongRanker Setup</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main>
+    <h1>SongRanker Setup Wizard</h1>
+
+    {% if error %}
+    <p class="error">Plex lookup failed: {{ error }}</p>
+    {% endif %}
+
+    <section class="panel">
+      <h2>1) Create first local user</h2>
+      <p>Existing users: {{ users_count }}</p>
+      <form method="post" action="/api/setup/user">
+        <label>Username <input type="text" name="username" required /></label>
+        <label>Email <input type="email" name="email" required /></label>
+        <button type="submit">Create user</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>2) Connect Plex</h2>
+      <form method="post" action="/api/setup/plex">
+        <label>Plex URL <input type="url" name="plex_url" value="{{ settings.plex_url or '' }}" required /></label>
+        <label>Plex Token <input type="password" name="plex_token" value="{{ settings.plex_token or '' }}" required /></label>
+        <button type="submit">Save Plex connection</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>3) Select music library</h2>
+      <form method="post" action="/api/setup/library">
+        <label>Library section
+          <select name="plex_music_section_id" required>
+            <option value="">Select one...</option>
+            {% for library in libraries %}
+            <option value="{{ library.key }}" {% if settings.plex_music_section_id == library.key %}selected{% endif %}>{{ library.title }} ({{ library.key }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Save library section</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>4) Initial import</h2>
+      <p>This imports title, artist, album, year/decade, and Plex rating key into local cache.</p>
+      <button id="run-import-btn">Run initial import + finish setup</button>
+      <p id="import-status"></p>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById("run-import-btn").addEventListener("click", async () => {
+      const status = document.getElementById("import-status");
+      status.textContent = "Importing tracks from Plex...";
+      const response = await fetch("/api/setup/import", { method: "POST" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || "Import failed";
+        return;
+      }
+      const payload = await response.json();
+      status.textContent = `Imported ${payload.imported}, updated ${payload.updated}. Redirecting...`;
+      window.location.href = "/";
+    });
+  </script>
+</body>
+</html>

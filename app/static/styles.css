@@ -49,3 +49,14 @@ button {
   border-radius: 8px;
   padding: 0.75rem;
 }
+
+select {
+  width: 100%;
+  max-width: 360px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.error {
+  color: #a40000;
+}
