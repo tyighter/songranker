@@ -20,10 +20,22 @@ The app will be available at:
 - http://0.0.0.0:2112
 - http://localhost:2112
 
-### 2) Run migrations
+### 2) Migration behavior (container startup)
+
+Migrations are already executed automatically at container startup by the `Dockerfile` command (`alembic upgrade head` before `uvicorn`).
+
+If you are reusing an existing `/data/songranker.db` volume and the schema exists but Alembic history is missing, repair migration tracking first:
 
 ```bash
+docker compose exec songranker alembic stamp head
 docker compose exec songranker alembic upgrade head
+```
+
+For local development, if migration state is messy and you can safely reset data, use a destructive volume reset:
+
+```bash
+docker compose down -v
+docker compose up --build
 ```
 
 ### 3) Open setup wizard
@@ -54,7 +66,7 @@ You can configure the DB with either:
 - `DATABASE_URL` (preferred)
 - or the PostgreSQL parts: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 
-By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`.
+By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`. That path is mounted from the named Docker volume `songranker_data`, so database state persists across container rebuilds/restarts until you remove the volume.
 
 ## APIs
 
