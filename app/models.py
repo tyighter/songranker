@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -86,3 +86,19 @@ class RatingScoreSnapshot(Base):
     __table_args__ = (
         UniqueConstraint("vote_id", "song_id", name="uq_rating_score_snapshots_vote_song"),
     )
+
+
+def _assign_bigint_pk_for_sqlite(mapper, connection, target):
+    """SQLite only auto-increments INTEGER PRIMARY KEY, not BIGINT."""
+    if getattr(target, "id", None) is not None:
+        return
+
+    if connection.dialect.name != "sqlite":
+        return
+
+    next_id = connection.execute(select(func.coalesce(func.max(target.__table__.c.id), 0) + 1)).scalar_one()
+    target.id = int(next_id)
+
+
+for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot):
+    event.listen(model, "before_insert", _assign_bigint_pk_for_sqlite)
