@@ -1,21 +1,51 @@
 body {
-  font-family: system-ui, sans-serif;
+  font-family: Arial, sans-serif;
   margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #0f172a;
-  color: #e2e8f0;
+  padding: 2rem;
+  background: #fafafa;
+  color: #111;
 }
 
 main {
-  max-width: 720px;
-  padding: 2rem;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  background: #111827;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
-a {
-  color: #38bdf8;
+.panel {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+input {
+  width: 100%;
+  max-width: 360px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+button {
+  padding: 0.6rem 1rem;
+  margin-top: 0.5rem;
+  margin-right: 0.5rem;
+  cursor: pointer;
+}
+
+#pair-content {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.song-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0.75rem;
 }

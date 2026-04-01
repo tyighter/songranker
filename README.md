@@ -43,3 +43,13 @@ The app reads the following DB environment variables:
 - `DB_PASSWORD`
 
 By default, `docker-compose.yml` wires these to the `db` service.
+
+
+## Rating API
+
+- `GET /api/rate/next?user_id=<id>&artist=<optional>&title_query=<optional>&song_ids=<optional_csv>`
+  - Returns the next deterministic comparison pair for the user, with optional active filters.
+- `POST /api/rate/vote`
+  - Body: `user_id`, `winner_song_id`, `loser_song_id`, and `filters` context.
+  - Applies an Elo update to global per-user song ratings, records vote history, and stores rating snapshots for the vote.
+

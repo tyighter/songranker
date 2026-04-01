@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -42,3 +42,18 @@ class RatingScore(Base):
     song_id: Mapped[int] = mapped_column(ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RatingScoreSnapshot(Base):
+    __tablename__ = "rating_score_snapshots"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    vote_id: Mapped[int] = mapped_column(ForeignKey("pairwise_votes.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    song_id: Mapped[int] = mapped_column(ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("vote_id", "song_id", name="uq_rating_score_snapshots_vote_song"),
+    )
