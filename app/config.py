@@ -10,9 +10,12 @@ class Settings:
     db_name: str = os.getenv("DB_NAME", "songranker")
     db_user: str = os.getenv("DB_USER", "songranker")
     db_password: str = os.getenv("DB_PASSWORD", "songranker")
+    database_url_override: str | None = os.getenv("DATABASE_URL")
 
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
         return (
             f"postgresql+psycopg://{self.db_user}:{self.db_password}@"
             f"{self.db_host}:{self.db_port}/{self.db_name}"

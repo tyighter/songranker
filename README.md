@@ -3,7 +3,7 @@
 This scaffold includes:
 
 - FastAPI backend with server-rendered setup and ranking pages.
-- PostgreSQL database.
+- SQLite database persisted on a Docker volume.
 - Alembic migrations for users, songs, pairwise votes, rating scores, setup settings, and cached Plex metadata.
 - Health check endpoint at `/health`.
 
@@ -23,7 +23,7 @@ The app will be available at:
 ### 2) Run migrations
 
 ```bash
-docker compose exec app alembic upgrade head
+docker compose exec songranker alembic upgrade head
 ```
 
 ### 3) Open setup wizard
@@ -49,15 +49,12 @@ Imported metadata includes `title`, `artist`, `album`, `year`, `decade`, and `pl
 
 ## Environment variables
 
-The app reads the following DB environment variables:
+You can configure the DB with either:
 
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
+- `DATABASE_URL` (preferred)
+- or the PostgreSQL parts: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 
-By default, `docker-compose.yml` wires these to the `db` service.
+By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`.
 
 ## APIs
 
