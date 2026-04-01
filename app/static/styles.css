@@ -60,3 +60,12 @@ select {
 .error {
   color: #a40000;
 }
+
+.warning {
+  color: #8a4b00;
+}
+
+.inline-forms {
+  display: flex;
+  gap: 0.5rem;
+}

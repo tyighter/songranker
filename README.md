@@ -32,12 +32,20 @@ On first launch, SongRanker redirects all app traffic to `/setup` until initiali
 
 Setup steps:
 
-1. Create the first local user.
+1. Create the first local user (username/email/password).
 2. Save Plex URL and token.
 3. Pick Plex music library section.
 4. Run initial import to cache metadata locally.
 
 Imported metadata includes `title`, `artist`, `album`, `year`, `decade`, and `plex_rating_key`.
+
+
+## Lightweight auth (not secure yet)
+
+- Username/password auth is intentionally lightweight and **not secure yet**.
+- Session cookie auth uses a server-side `user_sessions` table.
+- Ranking endpoints now infer `user_id` from the active session rather than request payloads.
+- Song catalog remains globally shared while votes/scores/snapshots are isolated per user.
 
 ## Environment variables
 
@@ -53,10 +61,10 @@ By default, `docker-compose.yml` wires these to the `db` service.
 
 ## APIs
 
-- `GET /api/rate/next?user_id=<id>&artist=<optional>&title_query=<optional>&song_ids=<optional_csv>`
-  - Returns the next deterministic comparison pair for the user, with optional active filters.
+- `GET /api/rate/next?artist=<optional>&title_query=<optional>&song_ids=<optional_csv>`
+  - Returns the next deterministic comparison pair for the signed-in user, with optional active filters.
 - `POST /api/rate/vote`
-  - Body: `user_id`, `winner_song_id`, `loser_song_id`, and `filters` context.
+  - Body: `winner_song_id`, `loser_song_id`, and `filters` context.
   - Applies an Elo update to global per-user song ratings, records vote history, and stores rating snapshots for the vote.
 - `POST /api/plex/resync`
   - Manually refreshes cached song metadata from Plex so ranking can continue even when Plex is temporarily unavailable.

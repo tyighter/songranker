@@ -10,10 +10,32 @@
   <main>
     <h1>SongRanker</h1>
     <p>App bound to {{ app_host }}:{{ app_port }}</p>
+    <p class="warning">{{ notice }}</p>
+
+    <section class="panel">
+      <h2>Session</h2>
+      <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
+      <div class="inline-forms">
+        <form method="post" action="/api/auth/signout">
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
+      <h3>Switch user</h3>
+      <form method="post" action="/api/auth/switch-user">
+        <label>User
+          <select name="user_id" required>
+            {% for user in users %}
+            <option value="{{ user.id }}" {% if user.id == current_user.id %}selected{% endif %}>{{ user.username }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Password <input type="password" name="password" required /></label>
+        <button type="submit">Switch user</button>
+      </form>
+    </section>
 
     <section class="panel">
       <h2>Comparison Controls</h2>
-      <label>User ID <input type="number" id="user-id" value="1" min="1" /></label>
       <label>Artist filter <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
       <label>Title contains <input type="text" id="title-filter" placeholder="optional text" /></label>
       <button id="next-pair-btn">Get next pair</button>
@@ -35,7 +57,6 @@
     const statusEl = document.getElementById("status");
     const pairPanel = document.getElementById("pair-panel");
     const pairContent = document.getElementById("pair-content");
-    const userIdEl = document.getElementById("user-id");
     const artistFilterEl = document.getElementById("artist-filter");
     const titleFilterEl = document.getElementById("title-filter");
 
@@ -53,17 +74,16 @@
       return filters;
     }
 
-    function queryFromFilters(userId, filters) {
-      const params = new URLSearchParams({ user_id: userId });
+    function queryFromFilters(filters) {
+      const params = new URLSearchParams({});
       if (filters.artist) params.set("artist", filters.artist);
       if (filters.title_query) params.set("title_query", filters.title_query);
       return params.toString();
     }
 
     async function loadNextPair() {
-      const userId = Number(userIdEl.value);
       currentFilters = collectFilters();
-      const query = queryFromFilters(userId, currentFilters);
+      const query = queryFromFilters(currentFilters);
 
       statusEl.textContent = "Loading next pair...";
       pairPanel.hidden = true;
@@ -96,7 +116,6 @@
     async function submitVote(winnerIndex) {
       if (!currentPair) return;
 
-      const userId = Number(userIdEl.value);
       const winner = currentPair[winnerIndex];
       const loser = currentPair[winnerIndex === 0 ? 1 : 0];
 
@@ -104,7 +123,6 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: userId,
           winner_song_id: winner.song_id,
           loser_song_id: loser.song_id,
           filters: currentFilters,
