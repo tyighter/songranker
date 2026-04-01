@@ -2,10 +2,13 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
@@ -28,10 +31,42 @@ DEFAULT_RATING = 1000
 ELO_K = 24
 SESSION_COOKIE_NAME = "songranker_session"
 SESSION_TTL_DAYS = 30
+LOG_FILE_PATH = Path("/log.log")
 
 app = FastAPI(title="SongRanker")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _configure_logging() -> None:
+    LOG_FILE_PATH.write_text("", encoding="utf-8")
+
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    file_handler = TimedRotatingFileHandler(
+        filename=str(LOG_FILE_PATH),
+        when="W0",
+        interval=1,
+        backupCount=8,
+        encoding="utf-8",
+        utc=True,
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
+
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+        logger.propagate = True
 
 
 class NextPairResponse(BaseModel):
@@ -367,12 +402,15 @@ async def _periodic_sync_loop():
                 _sync_tracks_from_plex(db, app_settings)
         except Exception:
             db.rollback()
+            logging.getLogger(__name__).exception("Periodic Plex sync failed")
         finally:
             db.close()
 
 
 @app.on_event("startup")
 async def startup_event():
+    _configure_logging()
+    logging.getLogger(__name__).info("Logging initialized at %s (weekly rotation enabled)", LOG_FILE_PATH)
     asyncio.create_task(_periodic_sync_loop())
 
 
