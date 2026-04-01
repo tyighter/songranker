@@ -107,6 +107,15 @@ class SongHistoryResponse(BaseModel):
     recent_matchups: list[dict[str, Any]]
 
 
+class PlexSettingsUpdateRequest(BaseModel):
+    plex_url: str
+    plex_token: str
+
+
+class PlexLibraryUpdateRequest(BaseModel):
+    plex_music_section_id: str
+
+
 def _hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 600_000).hex()
@@ -282,6 +291,26 @@ def _list_plex_libraries(app_settings: AppSettings) -> tuple[list[dict[str, str 
         return libraries, None
     except Exception as exc:
         return libraries, str(exc)
+
+
+def _plex_connection_payload(app_settings: AppSettings) -> dict[str, Any]:
+    libraries, error = _list_plex_libraries(app_settings)
+    has_connection_config = bool(app_settings.plex_url and app_settings.plex_token)
+    if error:
+        connection_status = "error"
+    elif has_connection_config:
+        connection_status = "connected"
+    else:
+        connection_status = "not_configured"
+
+    return {
+        "plex_url": app_settings.plex_url or "",
+        "plex_token_set": bool(app_settings.plex_token),
+        "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "libraries": libraries,
+        "connection_status": connection_status,
+        "connection_error": error,
+    }
 
 
 def _normalize_pair(song_a: int, song_b: int) -> tuple[int, int]:
@@ -642,6 +671,49 @@ def save_plex_library(plex_music_section_id: str = Form(...), db: Session = Depe
         "libraries": libraries,
         "status": error or "Library saved",
         "status_ok": error is None,
+    }
+
+
+@app.get("/api/settings/plex")
+def get_settings_plex(
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
+    app_settings = _get_or_create_settings(db)
+    return _plex_connection_payload(app_settings)
+
+
+@app.post("/api/settings/plex")
+def update_settings_plex(
+    payload: PlexSettingsUpdateRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
+    app_settings = _get_or_create_settings(db)
+    app_settings.plex_url = payload.plex_url.strip().rstrip("/")
+    app_settings.plex_token = payload.plex_token.strip()
+    db.add(app_settings)
+    db.commit()
+    db.refresh(app_settings)
+    return _plex_connection_payload(app_settings)
+
+
+@app.post("/api/settings/library")
+def update_settings_library(
+    payload: PlexLibraryUpdateRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
+    app_settings = _get_or_create_settings(db)
+    app_settings.plex_music_section_id = payload.plex_music_section_id.strip()
+    db.add(app_settings)
+    db.commit()
+    db.refresh(app_settings)
+
+    return {
+        "saved": True,
+        "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "message": "Library selection saved",
     }
 
 
