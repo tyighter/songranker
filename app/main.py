@@ -397,11 +397,20 @@ def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) 
 
 
 def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
+    started_at = datetime.now(timezone.utc)
     songs_query = db.query(Song)
     songs_query = _apply_filters(songs_query, filters)
     songs = songs_query.order_by(Song.id.asc()).all()
 
     if len(songs) < 2:
+        elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        logger.info(
+            "Pair selection aborted due to small pool | user_id=%s filters=%s song_count=%s elapsed_ms=%s",
+            user_id,
+            filters,
+            len(songs),
+            elapsed_ms,
+        )
         return None
 
     song_ids = [song.id for song in songs]
@@ -457,9 +466,27 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
             best_pair = (songs_by_id[song_a_id], songs_by_id[song_b_id])
 
     if best_pair:
+        elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        logger.info(
+            "Pair selected | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
+            user_id,
+            filters,
+            len(songs),
+            [best_pair[0].id, best_pair[1].id],
+            elapsed_ms,
+        )
         return best_pair
 
     fallback_song_a_id, fallback_song_b_id = _normalize_pair(song_ids[0], song_ids[1])
+    elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+    logger.info(
+        "Pair selected via fallback | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
+        user_id,
+        filters,
+        len(songs),
+        [fallback_song_a_id, fallback_song_b_id],
+        elapsed_ms,
+    )
     return songs_by_id[fallback_song_a_id], songs_by_id[fallback_song_b_id]
 
 
@@ -791,6 +818,7 @@ def get_next_pair(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_current_user),
 ):
+    started_at = datetime.now(timezone.utc)
     app_settings = _get_or_create_settings(db)
     filters: dict[str, Any] = {}
     if artist:
@@ -803,9 +831,17 @@ def get_next_pair(
         filters["title_query"] = title_query
     if song_ids:
         filters["song_ids"] = [int(song_id.strip()) for song_id in song_ids.split(",") if song_id.strip()]
+    logger.info("Received next pair request | user_id=%s filters=%s", current_user.id, filters)
 
     pair = _candidate_pair_for_user(db=db, user_id=current_user.id, filters=filters)
     if pair is None:
+        elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        logger.warning(
+            "No pair available for request | user_id=%s filters=%s elapsed_ms=%s",
+            current_user.id,
+            filters,
+            elapsed_ms,
+        )
         raise HTTPException(status_code=404, detail="Not enough songs available for this filter context")
 
     song_ids_for_pair = [pair[0].id, pair[1].id]
@@ -816,13 +852,22 @@ def get_next_pair(
     )
     rating_lookup = {row.song_id: row.score for row in rating_rows}
 
-    return NextPairResponse(
+    response = NextPairResponse(
         filters=filters,
         pair=[
             _serialize_song_for_pair(song, rating_lookup.get(song.id, DEFAULT_RATING), app_settings)
             for song in pair
         ],
     )
+    elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+    logger.info(
+        "Returning next pair response | user_id=%s filters=%s pair=%s elapsed_ms=%s",
+        current_user.id,
+        filters,
+        song_ids_for_pair,
+        elapsed_ms,
+    )
+    return response
 
 
 @app.get("/api/pool/options")

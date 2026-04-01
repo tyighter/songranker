@@ -351,21 +351,48 @@
         pairPanel.hidden = false;
       }
 
+      function logRateEvent(eventName, details = {}) {
+        const now = new Date().toISOString();
+        console.info(`[SongRanker][rate] ${eventName}`, { at: now, ...details });
+      }
+
       async function loadNextPair() {
         currentFilters = collectFilters();
         statusEl.textContent = "Loading songs...";
         pairPanel.hidden = true;
+        const startedAt = performance.now();
+        const url = `/api/rate/next?${paramsFromObject(currentFilters)}`;
+        logRateEvent("load_next_pair_started", { filters: currentFilters });
 
-        const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          statusEl.textContent = body.detail || "No pair available.";
-          return;
+        try {
+          const response = await fetch(url);
+          const elapsedMs = Math.round(performance.now() - startedAt);
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            logRateEvent("load_next_pair_failed", {
+              status: response.status,
+              elapsed_ms: elapsedMs,
+              detail: body.detail || null,
+            });
+            statusEl.textContent = body.detail || "No pair available.";
+            return;
+          }
+
+          const payload = await response.json();
+          renderPair(payload);
+          logRateEvent("load_next_pair_succeeded", {
+            elapsed_ms: elapsedMs,
+            pair_song_ids: (payload.pair || []).map((song) => song.song_id),
+          });
+          statusEl.textContent = "Choose a winner or skip unknown songs.";
+        } catch (error) {
+          const elapsedMs = Math.round(performance.now() - startedAt);
+          logRateEvent("load_next_pair_exception", {
+            elapsed_ms: elapsedMs,
+            message: error?.message || String(error),
+          });
+          statusEl.textContent = "Failed to load songs. Check browser console logs.";
         }
-
-        const payload = await response.json();
-        renderPair(payload);
-        statusEl.textContent = "Choose a winner or skip unknown songs.";
       }
 
       async function submitVote(winnerIndex) {
