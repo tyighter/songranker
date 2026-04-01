@@ -34,13 +34,13 @@ def upgrade() -> None:
     op.add_column("songs", sa.Column("decade", sa.String(length=16), nullable=True))
     op.add_column("songs", sa.Column("plex_rating_key", sa.String(length=64), nullable=True))
     op.add_column("songs", sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
-    op.create_unique_constraint("uq_songs_plex_rating_key", "songs", ["plex_rating_key"])
+    op.create_index("uq_songs_plex_rating_key", "songs", ["plex_rating_key"], unique=True)
 
     op.execute("INSERT INTO settings (id, is_initialized) VALUES (1, false)")
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_songs_plex_rating_key", "songs", type_="unique")
+    op.drop_index("uq_songs_plex_rating_key", table_name="songs")
     op.drop_column("songs", "updated_at")
     op.drop_column("songs", "plex_rating_key")
     op.drop_column("songs", "decade")

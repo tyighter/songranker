@@ -51,9 +51,8 @@ def upgrade() -> None:
         sa.Column("song_id", sa.BigInteger(), sa.ForeignKey("songs.id", ondelete="CASCADE"), nullable=False),
         sa.Column("score", sa.Integer(), nullable=False, server_default="1000"),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.UniqueConstraint("user_id", "song_id", name="uq_rating_scores_user_song"),
     )
-
-    op.create_unique_constraint("uq_rating_scores_user_song", "rating_scores", ["user_id", "song_id"])
 
     op.create_table(
         "rating_score_snapshots",
@@ -63,19 +62,12 @@ def upgrade() -> None:
         sa.Column("song_id", sa.BigInteger(), sa.ForeignKey("songs.id", ondelete="CASCADE"), nullable=False),
         sa.Column("score", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-
-    op.create_unique_constraint(
-        "uq_rating_score_snapshots_vote_song",
-        "rating_score_snapshots",
-        ["vote_id", "song_id"],
+        sa.UniqueConstraint("vote_id", "song_id", name="uq_rating_score_snapshots_vote_song"),
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_rating_score_snapshots_vote_song", "rating_score_snapshots", type_="unique")
     op.drop_table("rating_score_snapshots")
-    op.drop_constraint("uq_rating_scores_user_song", "rating_scores", type_="unique")
     op.drop_table("rating_scores")
     op.drop_table("pairwise_votes")
     op.drop_table("songs")
