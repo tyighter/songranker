@@ -35,9 +35,12 @@
     </section>
 
     <section class="panel">
-      <h2>Comparison Controls</h2>
-      <label>Artist filter <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
-      <label>Title contains <input type="text" id="title-filter" placeholder="optional text" /></label>
+      <h2>Rating Pool Filters</h2>
+      <div class="grid-3">
+        <label>Artist <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
+        <label>Album <input type="text" id="album-filter" placeholder="optional exact album" /></label>
+        <label>Decade <input type="text" id="decade-filter" placeholder="e.g. 1990s" /></label>
+      </div>
       <button id="next-pair-btn">Get next pair</button>
       <button id="resync-btn" type="button">Manual Plex resync</button>
       <p id="status"></p>
@@ -51,6 +54,67 @@
         <button id="vote-right">Vote right song</button>
       </div>
     </section>
+
+    <section class="panel">
+      <h2>Ranked List</h2>
+      <div class="inline-forms">
+        <button id="load-rankings">Refresh rankings</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th><button class="sort-btn" data-sort="rank">Rank</button></th>
+            <th><button class="sort-btn" data-sort="score">Score</button></th>
+            <th><button class="sort-btn" data-sort="artist">Artist</button></th>
+            <th><button class="sort-btn" data-sort="album">Album</button></th>
+            <th><button class="sort-btn" data-sort="year">Year</button></th>
+            <th>Title</th>
+          </tr>
+        </thead>
+        <tbody id="rankings-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>My Ratings / History</h2>
+      <div class="grid-4">
+        <label>Artist <input type="text" id="history-artist" placeholder="optional artist" /></label>
+        <label>Album <input type="text" id="history-album" placeholder="optional album" /></label>
+        <label>Decade <input type="text" id="history-decade" placeholder="e.g. 2010s" /></label>
+        <label>Date from <input type="date" id="history-date-from" /></label>
+        <label>Date to <input type="date" id="history-date-to" /></label>
+      </div>
+      <div class="inline-forms">
+        <button id="load-history">Load history</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Winner</th>
+            <th>Loser</th>
+            <th>Timestamp</th>
+            <th>Context</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+
+      <h3>Song Detail</h3>
+      <label>Song ID <input type="number" id="song-detail-id" min="1" placeholder="Enter song id" /></label>
+      <button id="load-song-detail">Inspect song</button>
+      <p id="song-detail-summary"></p>
+      <table>
+        <thead>
+          <tr>
+            <th>Result</th>
+            <th>Opponent</th>
+            <th>Timestamp</th>
+            <th>Context</th>
+          </tr>
+        </thead>
+        <tbody id="song-matchups-body"></tbody>
+      </table>
+    </section>
   </main>
 
   <script>
@@ -58,37 +122,51 @@
     const pairPanel = document.getElementById("pair-panel");
     const pairContent = document.getElementById("pair-content");
     const artistFilterEl = document.getElementById("artist-filter");
-    const titleFilterEl = document.getElementById("title-filter");
+    const albumFilterEl = document.getElementById("album-filter");
+    const decadeFilterEl = document.getElementById("decade-filter");
+    const rankingsBodyEl = document.getElementById("rankings-body");
+    const historyBodyEl = document.getElementById("history-body");
+    const songMatchupsBodyEl = document.getElementById("song-matchups-body");
 
     let currentPair = null;
     let currentFilters = {};
+    let rankingSort = { sort_by: "rank", sort_dir: "asc" };
 
     function collectFilters() {
       const filters = {};
-      if (artistFilterEl.value.trim()) {
-        filters.artist = artistFilterEl.value.trim();
-      }
-      if (titleFilterEl.value.trim()) {
-        filters.title_query = titleFilterEl.value.trim();
-      }
+      if (artistFilterEl.value.trim()) filters.artist = artistFilterEl.value.trim();
+      if (albumFilterEl.value.trim()) filters.album = albumFilterEl.value.trim();
+      if (decadeFilterEl.value.trim()) filters.decade = decadeFilterEl.value.trim();
       return filters;
     }
 
-    function queryFromFilters(filters) {
-      const params = new URLSearchParams({});
-      if (filters.artist) params.set("artist", filters.artist);
-      if (filters.title_query) params.set("title_query", filters.title_query);
+    function paramsFromObject(values) {
+      const params = new URLSearchParams();
+      Object.entries(values).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") params.set(key, value);
+      });
       return params.toString();
+    }
+
+    function renderPair(payload) {
+      currentPair = payload.pair;
+      pairContent.innerHTML = payload.pair.map((song) => `
+        <div class="song-card">
+          <h3>${song.title}</h3>
+          <p>${song.artist}</p>
+          <p>${song.album || ""} ${song.year || ""}</p>
+          <small>ID: ${song.song_id} · Score: ${song.score}</small>
+        </div>
+      `).join("");
+      pairPanel.hidden = false;
     }
 
     async function loadNextPair() {
       currentFilters = collectFilters();
-      const query = queryFromFilters(currentFilters);
-
       statusEl.textContent = "Loading next pair...";
       pairPanel.hidden = true;
 
-      const response = await fetch(`/api/rate/next?${query}`);
+      const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         statusEl.textContent = body.detail || "No pair available.";
@@ -96,37 +174,18 @@
       }
 
       const payload = await response.json();
-      currentPair = payload.pair;
-      pairContent.innerHTML = `
-        <div class="song-card">
-          <h3>${currentPair[0].title}</h3>
-          <p>${currentPair[0].artist}</p>
-          <small>Score: ${currentPair[0].score}</small>
-        </div>
-        <div class="song-card">
-          <h3>${currentPair[1].title}</h3>
-          <p>${currentPair[1].artist}</p>
-          <small>Score: ${currentPair[1].score}</small>
-        </div>
-      `;
-      pairPanel.hidden = false;
+      renderPair(payload);
       statusEl.textContent = "Vote to update ranking.";
     }
 
     async function submitVote(winnerIndex) {
       if (!currentPair) return;
-
       const winner = currentPair[winnerIndex];
       const loser = currentPair[winnerIndex === 0 ? 1 : 0];
-
       const response = await fetch("/api/rate/vote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          winner_song_id: winner.song_id,
-          loser_song_id: loser.song_id,
-          filters: currentFilters,
-        }),
+        body: JSON.stringify({ winner_song_id: winner.song_id, loser_song_id: loser.song_id, filters: currentFilters }),
       });
 
       if (!response.ok) {
@@ -137,12 +196,95 @@
 
       const payload = await response.json();
       statusEl.textContent = `Vote saved. ${payload.winner.title} is now ${payload.winner.score}.`;
-      await loadNextPair();
+      await Promise.all([loadNextPair(), loadRankings(), loadHistory()]);
+    }
+
+    async function loadRankings() {
+      const params = {
+        ...collectFilters(),
+        ...rankingSort,
+        page: 1,
+        page_size: 100,
+      };
+      const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
+      const payload = await response.json();
+      rankingsBodyEl.innerHTML = (payload.rows || []).map((row) => `
+        <tr>
+          <td>${row.rank}</td>
+          <td>${row.score}</td>
+          <td>${row.artist}</td>
+          <td>${row.album || ""}</td>
+          <td>${row.year || ""}</td>
+          <td>${row.title}</td>
+        </tr>
+      `).join("");
+    }
+
+    function collectHistoryFilters() {
+      return {
+        artist: document.getElementById("history-artist").value.trim(),
+        album: document.getElementById("history-album").value.trim(),
+        decade: document.getElementById("history-decade").value.trim(),
+        date_from: document.getElementById("history-date-from").value,
+        date_to: document.getElementById("history-date-to").value,
+        page: 1,
+        page_size: 50,
+      };
+    }
+
+    async function loadHistory() {
+      const response = await fetch(`/api/history?${paramsFromObject(collectHistoryFilters())}`);
+      const payload = await response.json();
+      historyBodyEl.innerHTML = (payload.rows || []).map((row) => `
+        <tr>
+          <td>${row.winner.title} — ${row.winner.artist}</td>
+          <td>${row.loser.title} — ${row.loser.artist}</td>
+          <td>${new Date(row.timestamp).toLocaleString()}</td>
+          <td><code>${JSON.stringify(row.context)}</code></td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadSongDetail() {
+      const id = document.getElementById("song-detail-id").value;
+      if (!id) return;
+      const response = await fetch(`/api/history/song/${id}?recent_limit=15`);
+      if (!response.ok) {
+        document.getElementById("song-detail-summary").textContent = "Song not found.";
+        songMatchupsBodyEl.innerHTML = "";
+        return;
+      }
+      const payload = await response.json();
+      document.getElementById("song-detail-summary").textContent = `${payload.song.title} (${payload.song.artist}) current score: ${payload.current_score}`;
+      songMatchupsBodyEl.innerHTML = payload.recent_matchups.map((match) => `
+        <tr>
+          <td>${match.result}</td>
+          <td>${match.opponent.title} — ${match.opponent.artist}</td>
+          <td>${new Date(match.timestamp).toLocaleString()}</td>
+          <td><code>${JSON.stringify(match.context)}</code></td>
+        </tr>
+      `).join("");
     }
 
     document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
     document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
     document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
+    document.getElementById("load-rankings").addEventListener("click", loadRankings);
+    document.getElementById("load-history").addEventListener("click", loadHistory);
+    document.getElementById("load-song-detail").addEventListener("click", loadSongDetail);
+
+    document.querySelectorAll(".sort-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const sortBy = btn.dataset.sort;
+        if (rankingSort.sort_by === sortBy) {
+          rankingSort.sort_dir = rankingSort.sort_dir === "asc" ? "desc" : "asc";
+        } else {
+          rankingSort.sort_by = sortBy;
+          rankingSort.sort_dir = "asc";
+        }
+        await loadRankings();
+      });
+    });
 
     document.getElementById("resync-btn").addEventListener("click", async () => {
       statusEl.textContent = "Running Plex resync...";
@@ -154,6 +296,9 @@
       }
       statusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
     });
+
+    loadRankings();
+    loadHistory();
   </script>
 </body>
 </html>

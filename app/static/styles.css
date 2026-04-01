@@ -31,6 +31,29 @@ input {
   margin-top: 0.25rem;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th button {
+  margin: 0;
+  padding: 0.3rem 0.4rem;
+}
+
+code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 button {
   padding: 0.6rem 1rem;
   margin-top: 0.5rem;
@@ -67,5 +90,19 @@ select {
 
 .inline-forms {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.grid-3, .grid-4 {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.grid-3 {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.grid-4 {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
