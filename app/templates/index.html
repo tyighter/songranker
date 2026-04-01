@@ -8,13 +8,59 @@
 </head>
 <body>
   <main>
-    <h1>SongRanker</h1>
+    <header class="top-bar">
+      <h1>SongRanker</h1>
+      {% if is_authenticated %}
+      <div class="top-actions">
+        <button type="button" id="open-user-modal">User info</button>
+        <button type="button" id="open-settings-modal">Settings</button>
+      </div>
+      {% endif %}
+    </header>
+
     <p>App bound to {{ app_host }}:{{ app_port }}</p>
     <p class="warning">{{ notice }}</p>
 
+    {% if not is_authenticated %}
+    <section class="panel">
+      <h2>Sign in required</h2>
+      <p>Sign in to rank songs and view your rating history.</p>
+      <button type="button" id="open-signin-modal">Sign in / create account</button>
+    </section>
+    {% endif %}
+
     {% if is_authenticated %}
     <section class="panel">
-      <h2>Session</h2>
+      <h2>Choose ranking pool</h2>
+      <div class="grid-3">
+        <label>Filter by
+          <select id="pool-filter-type">
+            <option value="none">None</option>
+            <option value="artist">Artist</option>
+            <option value="album">Album</option>
+          </select>
+        </label>
+        <label>Pool value
+          <select id="pool-filter-value" disabled>
+            <option value="">All songs</option>
+          </select>
+        </label>
+      </div>
+      <p id="status"></p>
+    </section>
+
+    <section class="panel" id="pair-panel" hidden>
+      <h2>Pick your winner</h2>
+      <div id="pair-content"></div>
+    </section>
+    {% endif %}
+  </main>
+
+  {% if is_authenticated %}
+  <div class="modal-backdrop" id="user-modal" aria-hidden="true" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
+      <button type="button" class="modal-close" data-close-modal="user-modal" aria-label="Close user dialog">×</button>
+      <h2 id="user-modal-title">User info</h2>
       <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
       <div class="inline-forms">
         <form method="post" action="/api/auth/signout">
@@ -33,59 +79,8 @@
         <label>Password <input type="password" name="password" required /></label>
         <button type="submit">Switch user</button>
       </form>
-    </section>
-    {% else %}
-    <section class="panel">
-      <h2>Sign in required</h2>
-      <p>Sign in to rank songs and view your rating history.</p>
-      <button type="button" id="open-signin-modal">Sign in / create account</button>
-    </section>
-    {% endif %}
 
-    {% if is_authenticated %}
-    <section class="panel">
-      <h2>Rating Pool Filters</h2>
-      <div class="grid-3">
-        <label>Artist <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
-        <label>Album <input type="text" id="album-filter" placeholder="optional exact album" /></label>
-        <label>Decade <input type="text" id="decade-filter" placeholder="e.g. 1990s" /></label>
-      </div>
-      <button id="next-pair-btn">Get next pair</button>
-      <button id="resync-btn" type="button">Manual Plex resync</button>
-      <p id="status"></p>
-    </section>
-
-    <section class="panel" id="pair-panel" hidden>
-      <h2>Current Pair</h2>
-      <div id="pair-content"></div>
-      <div class="actions">
-        <button id="vote-left">Vote left song</button>
-        <button id="vote-right">Vote right song</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Ranked List</h2>
-      <div class="inline-forms">
-        <button id="load-rankings">Refresh rankings</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th><button class="sort-btn" data-sort="rank">Rank</button></th>
-            <th><button class="sort-btn" data-sort="score">Score</button></th>
-            <th><button class="sort-btn" data-sort="artist">Artist</button></th>
-            <th><button class="sort-btn" data-sort="album">Album</button></th>
-            <th><button class="sort-btn" data-sort="year">Year</button></th>
-            <th>Title</th>
-          </tr>
-        </thead>
-        <tbody id="rankings-body"></tbody>
-      </table>
-    </section>
-
-    <section class="panel">
-      <h2>My Ratings / History</h2>
+      <h3>My Ratings / History</h3>
       <div class="grid-4">
         <label>Artist <input type="text" id="history-artist" placeholder="optional artist" /></label>
         <label>Album <input type="text" id="history-album" placeholder="optional album" /></label>
@@ -94,7 +89,7 @@
         <label>Date to <input type="date" id="history-date-to" /></label>
       </div>
       <div class="inline-forms">
-        <button id="load-history">Load history</button>
+        <button id="load-history" type="button">Load history</button>
       </div>
       <table>
         <thead>
@@ -108,24 +103,36 @@
         <tbody id="history-body"></tbody>
       </table>
 
-      <h3>Song Detail</h3>
-      <label>Song ID <input type="number" id="song-detail-id" min="1" placeholder="Enter song id" /></label>
-      <button id="load-song-detail">Inspect song</button>
-      <p id="song-detail-summary"></p>
+      <h3>Ranked List</h3>
+      <div class="inline-forms">
+        <button id="load-rankings" type="button">Refresh rankings</button>
+      </div>
       <table>
         <thead>
           <tr>
-            <th>Result</th>
-            <th>Opponent</th>
-            <th>Timestamp</th>
-            <th>Context</th>
+            <th><button type="button" class="sort-btn" data-sort="rank">Rank</button></th>
+            <th><button type="button" class="sort-btn" data-sort="score">Score</button></th>
+            <th><button type="button" class="sort-btn" data-sort="artist">Artist</button></th>
+            <th><button type="button" class="sort-btn" data-sort="album">Album</button></th>
+            <th><button type="button" class="sort-btn" data-sort="year">Year</button></th>
+            <th>Title</th>
           </tr>
         </thead>
-        <tbody id="song-matchups-body"></tbody>
+        <tbody id="rankings-body"></tbody>
       </table>
-    </section>
-    {% endif %}
-  </main>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="settings-modal" aria-hidden="true" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+      <button type="button" class="modal-close" data-close-modal="settings-modal" aria-label="Close settings dialog">×</button>
+      <h2 id="settings-modal-title">Settings</h2>
+      <p>Plex settings and sync controls.</p>
+      <button id="resync-btn" type="button">Manual Plex resync</button>
+      <p id="settings-status"></p>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="modal-backdrop" id="signin-modal" aria-hidden="true" {% if is_authenticated %}hidden{% endif %}>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signin-modal-title">
@@ -160,61 +167,46 @@
     const createUserSection = document.getElementById("create-user-section");
     let lastFocusedElement = null;
 
-    function getFocusableElements() {
-      if (!signinModal) return [];
-      return Array.from(signinModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+    function getFocusableElements(modal) {
+      if (!modal) return [];
+      return Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
         .filter((el) => !el.disabled && el.getAttribute("aria-hidden") !== "true");
     }
 
-    function openSigninModal() {
-      if (!signinModal) return;
+    function openModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
       lastFocusedElement = document.activeElement;
-      signinModal.hidden = false;
-      signinModal.setAttribute("aria-hidden", "false");
+      modal.hidden = false;
+      modal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
-      const focusable = getFocusableElements();
-      if (focusable.length) focusable[1] ? focusable[1].focus() : focusable[0].focus();
+      const focusable = getFocusableElements(modal);
+      if (focusable.length) focusable[0].focus();
     }
 
-    function closeSigninModal() {
-      if (!signinModal) return;
-      signinModal.hidden = true;
-      signinModal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("modal-open");
-      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
-        lastFocusedElement.focus();
+    function closeModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      if (!Array.from(document.querySelectorAll(".modal-backdrop")).some((el) => !el.hidden)) {
+        document.body.classList.remove("modal-open");
       }
+      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") lastFocusedElement.focus();
     }
 
-    function handleModalKeydown(event) {
-      if (!signinModal || signinModal.hidden) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSigninModal();
-        return;
-      }
-      if (event.key !== "Tab") return;
+    function openSigninModal() { openModal("signin-modal"); }
+    function closeSigninModal() { closeModal("signin-modal"); }
 
-      const focusable = getFocusableElements();
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
+    document.querySelectorAll("[data-close-modal]").forEach((btn) => {
+      btn.addEventListener("click", () => closeModal(btn.dataset.closeModal));
+    });
 
-    if (signinModal) {
-      signinModal.addEventListener("click", (event) => {
-        if (event.target === signinModal) closeSigninModal();
+    document.querySelectorAll(".modal-backdrop").forEach((modal) => {
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) closeModal(modal.id);
       });
-      signinModal.addEventListener("keydown", handleModalKeydown);
-      document.addEventListener("keydown", handleModalKeydown);
-    }
+    });
 
     if (openSigninModalBtn) openSigninModalBtn.addEventListener("click", openSigninModal);
     if (closeSigninModalBtn) closeSigninModalBtn.addEventListener("click", closeSigninModal);
@@ -230,33 +222,22 @@
       openSigninModal();
     }
 
-    const sessionSignedInText = Array.from(document.querySelectorAll("main p")).find((el) => el.textContent.includes("Signed in as"));
-    if (signinModal && sessionSignedInText) {
-      closeSigninModal();
-    }
-
     if (isAuthenticated) {
+      document.getElementById("open-user-modal").addEventListener("click", () => openModal("user-modal"));
+      document.getElementById("open-settings-modal").addEventListener("click", () => openModal("settings-modal"));
+
       const statusEl = document.getElementById("status");
+      const settingsStatusEl = document.getElementById("settings-status");
       const pairPanel = document.getElementById("pair-panel");
       const pairContent = document.getElementById("pair-content");
-      const artistFilterEl = document.getElementById("artist-filter");
-      const albumFilterEl = document.getElementById("album-filter");
-      const decadeFilterEl = document.getElementById("decade-filter");
       const rankingsBodyEl = document.getElementById("rankings-body");
       const historyBodyEl = document.getElementById("history-body");
-      const songMatchupsBodyEl = document.getElementById("song-matchups-body");
+      const poolFilterTypeEl = document.getElementById("pool-filter-type");
+      const poolFilterValueEl = document.getElementById("pool-filter-value");
 
       let currentPair = null;
       let currentFilters = {};
       let rankingSort = { sort_by: "rank", sort_dir: "asc" };
-
-      function collectFilters() {
-        const filters = {};
-        if (artistFilterEl.value.trim()) filters.artist = artistFilterEl.value.trim();
-        if (albumFilterEl.value.trim()) filters.album = albumFilterEl.value.trim();
-        if (decadeFilterEl.value.trim()) filters.decade = decadeFilterEl.value.trim();
-        return filters;
-      }
 
       function paramsFromObject(values) {
         const params = new URLSearchParams();
@@ -266,22 +247,59 @@
         return params.toString();
       }
 
+      function collectFilters() {
+        const filterType = poolFilterTypeEl.value;
+        const filterValue = poolFilterValueEl.value;
+        const filters = {};
+        if (filterType === "artist" && filterValue) filters.artist = filterValue;
+        if (filterType === "album" && filterValue) filters.album = filterValue;
+        return filters;
+      }
+
+      async function loadPoolOptions() {
+        const filterType = poolFilterTypeEl.value;
+        if (filterType === "none") {
+          poolFilterValueEl.innerHTML = '<option value="">All songs</option>';
+          poolFilterValueEl.disabled = true;
+          return;
+        }
+
+        poolFilterValueEl.disabled = false;
+        poolFilterValueEl.innerHTML = '<option value="">Loading...</option>';
+        const response = await fetch(`/api/pool/options?${paramsFromObject({ filter_by: filterType })}`);
+        const payload = await response.json().catch(() => ({ options: [] }));
+        const options = payload.options || [];
+        poolFilterValueEl.innerHTML = ['<option value="">All songs</option>']
+          .concat(options.map((value) => `<option value="${value}">${value}</option>`))
+          .join("");
+      }
+
       function renderPair(payload) {
         currentPair = payload.pair;
-        pairContent.innerHTML = payload.pair.map((song) => `
+        pairContent.innerHTML = payload.pair.map((song, index) => `
           <div class="song-card">
+            <img class="album-art" src="${song.album_art_url || '/static/placeholder-album.svg'}" alt="Album art for ${song.title}" onerror="this.src='/static/placeholder-album.svg';" />
             <h3>${song.title}</h3>
-            <p>${song.artist}</p>
-            <p>${song.album || ""} ${song.year || ""}</p>
-            <small>ID: ${song.song_id} · Score: ${song.score}</small>
+            <p><strong>Artist:</strong> ${song.artist}</p>
+            <p><strong>Album:</strong> ${song.album || "Unknown"}</p>
+            <button type="button" data-vote-index="${index}">Choose this song</button>
+            <button type="button" data-skip-index="${index}" class="secondary">Skip this song</button>
           </div>
         `).join("");
+
+        pairContent.querySelectorAll("[data-vote-index]").forEach((btn) => {
+          btn.addEventListener("click", () => submitVote(Number(btn.dataset.voteIndex)));
+        });
+        pairContent.querySelectorAll("[data-skip-index]").forEach((btn) => {
+          btn.addEventListener("click", () => skipSong(Number(btn.dataset.skipIndex)));
+        });
+
         pairPanel.hidden = false;
       }
 
       async function loadNextPair() {
         currentFilters = collectFilters();
-        statusEl.textContent = "Loading next pair...";
+        statusEl.textContent = "Loading songs...";
         pairPanel.hidden = true;
 
         const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
@@ -293,7 +311,7 @@
 
         const payload = await response.json();
         renderPair(payload);
-        statusEl.textContent = "Vote to update ranking.";
+        statusEl.textContent = "Choose a winner or skip unknown songs.";
       }
 
       async function submitVote(winnerIndex) {
@@ -317,13 +335,22 @@
         await Promise.all([loadNextPair(), loadRankings(), loadHistory()]);
       }
 
+      async function skipSong(skipIndex) {
+        if (!currentPair) return;
+        const keepSong = currentPair[skipIndex === 0 ? 1 : 0];
+        const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
+        if (!response.ok) {
+          statusEl.textContent = "Unable to find replacement song.";
+          return;
+        }
+        const payload = await response.json();
+        const replacement = payload.pair.find((song) => song.song_id !== keepSong.song_id) || payload.pair[0];
+        renderPair({ pair: [keepSong, replacement] });
+        statusEl.textContent = "Skipped one song and loaded a replacement.";
+      }
+
       async function loadRankings() {
-        const params = {
-          ...collectFilters(),
-          ...rankingSort,
-          page: 1,
-          page_size: 100,
-        };
+        const params = { ...collectFilters(), ...rankingSort, page: 1, page_size: 100 };
         const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
         const payload = await response.json();
         rankingsBodyEl.innerHTML = (payload.rows || []).map((row) => `
@@ -363,40 +390,13 @@
         `).join("");
       }
 
-      async function loadSongDetail() {
-        const id = document.getElementById("song-detail-id").value;
-        if (!id) return;
-        const response = await fetch(`/api/history/song/${id}?recent_limit=15`);
-        if (!response.ok) {
-          document.getElementById("song-detail-summary").textContent = "Song not found.";
-          songMatchupsBodyEl.innerHTML = "";
-          return;
-        }
-        const payload = await response.json();
-        document.getElementById("song-detail-summary").textContent = `${payload.song.title} (${payload.song.artist}) current score: ${payload.current_score}`;
-        songMatchupsBodyEl.innerHTML = payload.recent_matchups.map((match) => `
-          <tr>
-            <td>${match.result}</td>
-            <td>${match.opponent.title} — ${match.opponent.artist}</td>
-            <td>${new Date(match.timestamp).toLocaleString()}</td>
-            <td><code>${JSON.stringify(match.context)}</code></td>
-          </tr>
-        `).join("");
-      }
-
-      document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
-      document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
-      document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
       document.getElementById("load-rankings").addEventListener("click", loadRankings);
       document.getElementById("load-history").addEventListener("click", loadHistory);
-      document.getElementById("load-song-detail").addEventListener("click", loadSongDetail);
-
       document.querySelectorAll(".sort-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const sortBy = btn.dataset.sort;
-          if (rankingSort.sort_by === sortBy) {
-            rankingSort.sort_dir = rankingSort.sort_dir === "asc" ? "desc" : "asc";
-          } else {
+          if (rankingSort.sort_by === sortBy) rankingSort.sort_dir = rankingSort.sort_dir === "asc" ? "desc" : "asc";
+          else {
             rankingSort.sort_by = sortBy;
             rankingSort.sort_dir = "asc";
           }
@@ -404,17 +404,24 @@
         });
       });
 
+      poolFilterTypeEl.addEventListener("change", async () => {
+        await loadPoolOptions();
+        await loadNextPair();
+      });
+      poolFilterValueEl.addEventListener("change", loadNextPair);
+
       document.getElementById("resync-btn").addEventListener("click", async () => {
-        statusEl.textContent = "Running Plex resync...";
+        settingsStatusEl.textContent = "Running Plex resync...";
         const response = await fetch("/api/plex/resync", { method: "POST" });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          statusEl.textContent = body.detail || "Resync failed.";
+          settingsStatusEl.textContent = body.detail || "Resync failed.";
           return;
         }
-        statusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
+        settingsStatusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
       });
 
+      loadPoolOptions().then(loadNextPair);
       loadRankings();
       loadHistory();
     }

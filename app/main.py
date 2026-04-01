@@ -308,6 +308,18 @@ def _serialize_song(song: Song, score: int) -> dict[str, Any]:
     }
 
 
+def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) -> dict[str, Any]:
+    payload = _serialize_song(song, score)
+    album_art_url = None
+    if app_settings.plex_url and app_settings.plex_token and song.plex_rating_key:
+        album_art_url = (
+            f"{app_settings.plex_url.rstrip('/')}/library/metadata/{song.plex_rating_key}/thumb"
+            f"?X-Plex-Token={app_settings.plex_token}"
+        )
+    payload["album_art_url"] = album_art_url
+    return payload
+
+
 def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
     songs_query = db.query(Song)
     songs_query = _apply_filters(songs_query, filters)
@@ -594,6 +606,7 @@ def get_next_pair(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_current_user),
 ):
+    app_settings = _get_or_create_settings(db)
     filters: dict[str, Any] = {}
     if artist:
         filters["artist"] = artist
@@ -621,10 +634,26 @@ def get_next_pair(
     return NextPairResponse(
         filters=filters,
         pair=[
-            _serialize_song(song, rating_lookup.get(song.id, DEFAULT_RATING))
+            _serialize_song_for_pair(song, rating_lookup.get(song.id, DEFAULT_RATING), app_settings)
             for song in pair
         ],
     )
+
+
+@app.get("/api/pool/options")
+def get_pool_options(
+    filter_by: str = Query(default="none"),
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
+    filter_by = (filter_by or "none").lower()
+    if filter_by == "artist":
+        rows = db.query(Song.artist).filter(Song.artist.isnot(None)).distinct().order_by(Song.artist.asc()).all()
+        return {"filter_by": filter_by, "options": [row[0] for row in rows if row[0]]}
+    if filter_by == "album":
+        rows = db.query(Song.album).filter(Song.album.isnot(None)).distinct().order_by(Song.album.asc()).all()
+        return {"filter_by": filter_by, "options": [row[0] for row in rows if row[0]]}
+    return {"filter_by": "none", "options": []}
 
 
 @app.get("/api/rankings", response_model=RankingsResponse)

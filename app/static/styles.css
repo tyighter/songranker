@@ -11,6 +11,18 @@ main {
   margin: 0 auto;
 }
 
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.top-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .panel {
   background: #fff;
   border: 1px solid #ddd;
@@ -24,7 +36,7 @@ label {
   margin-bottom: 0.5rem;
 }
 
-input {
+input, select {
   width: 100%;
   max-width: 360px;
   padding: 0.5rem;
@@ -61,6 +73,10 @@ button {
   cursor: pointer;
 }
 
+button.secondary {
+  background: #f0f3f8;
+}
+
 #pair-content {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -73,15 +89,10 @@ button {
   padding: 0.75rem;
 }
 
-select {
+.album-art {
   width: 100%;
-  max-width: 360px;
-  padding: 0.5rem;
-  margin-top: 0.25rem;
-}
-
-.error {
-  color: #a40000;
+  border-radius: 6px;
+  border: 1px solid #ddd;
 }
 
 .warning {
@@ -125,7 +136,7 @@ select {
 .modal {
   background: #fff;
   border-radius: 10px;
-  width: min(680px, 100%);
+  width: min(900px, 100%);
   max-height: 90vh;
   overflow: auto;
   padding: 1rem;
