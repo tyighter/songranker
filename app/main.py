@@ -269,6 +269,21 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
     return {"imported": imported, "updated": updated}
 
 
+def _list_plex_libraries(app_settings: AppSettings) -> tuple[list[dict[str, str | None]], str | None]:
+    libraries: list[dict[str, str | None]] = []
+    if not app_settings.plex_url or not app_settings.plex_token:
+        return libraries, "Plex URL and token are required."
+
+    try:
+        sections_root = _plex_get_xml(app_settings.plex_url, app_settings.plex_token, "/library/sections")
+        for directory in sections_root.findall("Directory"):
+            if directory.attrib.get("type") == "artist":
+                libraries.append({"key": directory.attrib.get("key"), "title": directory.attrib.get("title")})
+        return libraries, None
+    except Exception as exc:
+        return libraries, str(exc)
+
+
 def _normalize_pair(song_a: int, song_b: int) -> tuple[int, int]:
     return (song_a, song_b) if song_a < song_b else (song_b, song_a)
 
@@ -466,16 +481,7 @@ def setup_page(request: StarletteRequest, db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
     users_count = db.query(func.count(User.id)).scalar() or 0
 
-    libraries = []
-    error = None
-    if app_settings.plex_url and app_settings.plex_token:
-        try:
-            sections_root = _plex_get_xml(app_settings.plex_url, app_settings.plex_token, "/library/sections")
-            for directory in sections_root.findall("Directory"):
-                if directory.attrib.get("type") == "artist":
-                    libraries.append({"key": directory.attrib.get("key"), "title": directory.attrib.get("title")})
-        except Exception as exc:
-            error = str(exc)
+    libraries, error = _list_plex_libraries(app_settings) if app_settings.plex_url and app_settings.plex_token else ([], None)
 
     return templates.TemplateResponse(
         "setup.html",
@@ -569,12 +575,74 @@ def setup_plex(plex_url: str = Form(...), plex_token: str = Form(...), db: Sessi
     return RedirectResponse(url="/setup", status_code=303)
 
 
+@app.get("/api/plex/settings")
+def plex_settings(db: Session = Depends(get_db)):
+    app_settings = _get_or_create_settings(db)
+    libraries, error = _list_plex_libraries(app_settings)
+    if error:
+        status = error
+    elif app_settings.plex_url and app_settings.plex_token:
+        status = "Connected"
+    else:
+        status = "Not configured"
+    return {
+        "plex_url": app_settings.plex_url or "",
+        "plex_token": app_settings.plex_token or "",
+        "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "libraries": libraries,
+        "status": status,
+        "status_ok": error is None and bool(app_settings.plex_url and app_settings.plex_token),
+    }
+
+
+@app.post("/api/plex/settings")
+def save_plex_settings(
+    plex_url: str = Form(...),
+    plex_token: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    app_settings = _get_or_create_settings(db)
+    app_settings.plex_url = plex_url.strip().rstrip("/")
+    app_settings.plex_token = plex_token.strip()
+    db.add(app_settings)
+    db.commit()
+    db.refresh(app_settings)
+
+    libraries, error = _list_plex_libraries(app_settings)
+    return {
+        "plex_url": app_settings.plex_url or "",
+        "plex_token": app_settings.plex_token or "",
+        "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "libraries": libraries,
+        "status": error or "Connected",
+        "status_ok": error is None,
+    }
+
+
 @app.post("/api/setup/library")
 def setup_library(plex_music_section_id: str = Form(...), db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
     app_settings.plex_music_section_id = plex_music_section_id
     db.commit()
     return RedirectResponse(url="/setup", status_code=303)
+
+
+@app.post("/api/plex/library")
+def save_plex_library(plex_music_section_id: str = Form(...), db: Session = Depends(get_db)):
+    app_settings = _get_or_create_settings(db)
+    app_settings.plex_music_section_id = plex_music_section_id
+    db.add(app_settings)
+    db.commit()
+
+    libraries, error = _list_plex_libraries(app_settings)
+    return {
+        "plex_url": app_settings.plex_url or "",
+        "plex_token": app_settings.plex_token or "",
+        "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "libraries": libraries,
+        "status": error or "Library saved",
+        "status_ok": error is None,
+    }
 
 
 @app.post("/api/setup/import")
