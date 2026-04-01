@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from starlette.requests import Request as StarletteRequest
 
 from app.config import settings
@@ -48,6 +48,28 @@ class VoteRequest(BaseModel):
 class VoteResponse(BaseModel):
     winner: dict[str, Any]
     loser: dict[str, Any]
+
+
+class RankingsResponse(BaseModel):
+    filters: dict[str, Any]
+    sort_by: str
+    sort_dir: str
+    total: int
+    rows: list[dict[str, Any]]
+
+
+class VoteHistoryResponse(BaseModel):
+    filters: dict[str, Any]
+    page: int
+    page_size: int
+    total: int
+    rows: list[dict[str, Any]]
+
+
+class SongHistoryResponse(BaseModel):
+    song: dict[str, Any]
+    current_score: int
+    recent_matchups: list[dict[str, Any]]
 
 
 def _hash_password(password: str) -> str:
@@ -221,6 +243,12 @@ def _apply_filters(query, filters: dict[str, Any]):
     if artist := filters.get("artist"):
         query = query.filter(Song.artist == artist)
 
+    if album := filters.get("album"):
+        query = query.filter(Song.album == album)
+
+    if decade := filters.get("decade"):
+        query = query.filter(Song.decade == decade)
+
     if title_query := filters.get("title_query"):
         query = query.filter(Song.title.ilike(f"%{title_query}%"))
 
@@ -228,6 +256,18 @@ def _apply_filters(query, filters: dict[str, Any]):
         query = query.filter(Song.id.in_(song_ids))
 
     return query
+
+
+def _serialize_song(song: Song, score: int) -> dict[str, Any]:
+    return {
+        "song_id": song.id,
+        "title": song.title,
+        "artist": song.artist,
+        "album": song.album,
+        "year": song.year,
+        "decade": song.decade,
+        "score": score,
+    }
 
 
 def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
@@ -518,6 +558,8 @@ def resync_plex(
 @app.get("/api/rate/next", response_model=NextPairResponse)
 def get_next_pair(
     artist: str | None = Query(default=None),
+    album: str | None = Query(default=None),
+    decade: str | None = Query(default=None),
     title_query: str | None = Query(default=None),
     song_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -526,6 +568,10 @@ def get_next_pair(
     filters: dict[str, Any] = {}
     if artist:
         filters["artist"] = artist
+    if album:
+        filters["album"] = album
+    if decade:
+        filters["decade"] = decade
     if title_query:
         filters["title_query"] = title_query
     if song_ids:
@@ -546,13 +592,186 @@ def get_next_pair(
     return NextPairResponse(
         filters=filters,
         pair=[
-            {
-                "song_id": song.id,
-                "title": song.title,
-                "artist": song.artist,
-                "score": rating_lookup.get(song.id, DEFAULT_RATING),
-            }
+            _serialize_song(song, rating_lookup.get(song.id, DEFAULT_RATING))
             for song in pair
+        ],
+    )
+
+
+@app.get("/api/rankings", response_model=RankingsResponse)
+def get_rankings(
+    artist: str | None = Query(default=None),
+    album: str | None = Query(default=None),
+    decade: str | None = Query(default=None),
+    sort_by: str = Query(default="rank"),
+    sort_dir: str = Query(default="asc"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    filters: dict[str, Any] = {}
+    if artist:
+        filters["artist"] = artist
+    if album:
+        filters["album"] = album
+    if decade:
+        filters["decade"] = decade
+
+    songs = _apply_filters(db.query(Song), filters).order_by(Song.id.asc()).all()
+    if not songs:
+        return RankingsResponse(filters=filters, sort_by=sort_by, sort_dir=sort_dir, total=0, rows=[])
+
+    song_ids = [song.id for song in songs]
+    rating_rows = (
+        db.query(RatingScore)
+        .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id.in_(song_ids)))
+        .all()
+    )
+    rating_lookup = {row.song_id: row.score for row in rating_rows}
+    rows = [_serialize_song(song, rating_lookup.get(song.id, DEFAULT_RATING)) for song in songs]
+
+    rows.sort(key=lambda row: (-row["score"], row["artist"], row["title"], row["song_id"]))
+    for index, row in enumerate(rows, start=1):
+        row["rank"] = index
+
+    reverse = sort_dir.lower() == "desc"
+    if sort_by == "score":
+        rows.sort(key=lambda row: (row["score"], row["rank"]), reverse=reverse)
+    elif sort_by == "artist":
+        rows.sort(key=lambda row: (row["artist"] or "", row["title"], row["rank"]), reverse=reverse)
+    elif sort_by == "album":
+        rows.sort(key=lambda row: (row["album"] or "", row["title"], row["rank"]), reverse=reverse)
+    elif sort_by == "year":
+        rows.sort(key=lambda row: (row["year"] or 0, row["title"], row["rank"]), reverse=reverse)
+    else:
+        rows.sort(key=lambda row: row["rank"], reverse=reverse)
+        sort_by = "rank"
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    return RankingsResponse(
+        filters=filters,
+        sort_by=sort_by,
+        sort_dir="desc" if reverse else "asc",
+        total=len(rows),
+        rows=rows[start:end],
+    )
+
+
+@app.get("/api/history", response_model=VoteHistoryResponse)
+def get_vote_history(
+    artist: str | None = Query(default=None),
+    album: str | None = Query(default=None),
+    decade: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    winner_song = aliased(Song)
+    loser_song = aliased(Song)
+    query = (
+        db.query(PairwiseVote, winner_song, loser_song)
+        .join(winner_song, winner_song.id == PairwiseVote.winner_song_id)
+        .join(loser_song, loser_song.id == PairwiseVote.loser_song_id)
+        .filter(PairwiseVote.user_id == current_user.id)
+    )
+
+    filters: dict[str, Any] = {}
+    if artist:
+        query = query.filter((winner_song.artist == artist) | (loser_song.artist == artist))
+        filters["artist"] = artist
+    if album:
+        query = query.filter((winner_song.album == album) | (loser_song.album == album))
+        filters["album"] = album
+    if decade:
+        query = query.filter((winner_song.decade == decade) | (loser_song.decade == decade))
+        filters["decade"] = decade
+    if date_from:
+        query = query.filter(PairwiseVote.created_at >= datetime.fromisoformat(date_from))
+        filters["date_from"] = date_from
+    if date_to:
+        query = query.filter(PairwiseVote.created_at <= datetime.fromisoformat(date_to))
+        filters["date_to"] = date_to
+
+    total = query.count()
+    rows = (
+        query.order_by(PairwiseVote.created_at.desc(), PairwiseVote.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return VoteHistoryResponse(
+        filters=filters,
+        page=page,
+        page_size=page_size,
+        total=total,
+        rows=[
+            {
+                "vote_id": vote.id,
+                "winner": {"song_id": winner.id, "title": winner.title, "artist": winner.artist},
+                "loser": {"song_id": loser.id, "title": loser.title, "artist": loser.artist},
+                "timestamp": vote.created_at.isoformat(),
+                "context": json.loads(vote.context_metadata) if vote.context_metadata else {},
+            }
+            for vote, winner, loser in rows
+        ],
+    )
+
+
+@app.get("/api/history/song/{song_id}", response_model=SongHistoryResponse)
+def get_song_history(
+    song_id: int,
+    recent_limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if song is None:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    rating_row = (
+        db.query(RatingScore)
+        .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id == song_id))
+        .first()
+    )
+    current_score = rating_row.score if rating_row else DEFAULT_RATING
+
+    winner_song = aliased(Song)
+    loser_song = aliased(Song)
+    matchup_rows = (
+        db.query(PairwiseVote, winner_song, loser_song)
+        .join(winner_song, winner_song.id == PairwiseVote.winner_song_id)
+        .join(loser_song, loser_song.id == PairwiseVote.loser_song_id)
+        .filter(
+            PairwiseVote.user_id == current_user.id,
+            (PairwiseVote.winner_song_id == song_id) | (PairwiseVote.loser_song_id == song_id),
+        )
+        .order_by(PairwiseVote.created_at.desc(), PairwiseVote.id.desc())
+        .limit(recent_limit)
+        .all()
+    )
+
+    return SongHistoryResponse(
+        song=_serialize_song(song, current_score),
+        current_score=current_score,
+        recent_matchups=[
+            {
+                "vote_id": vote.id,
+                "result": "win" if vote.winner_song_id == song_id else "loss",
+                "opponent": {
+                    "song_id": loser.id if vote.winner_song_id == song_id else winner.id,
+                    "title": loser.title if vote.winner_song_id == song_id else winner.title,
+                    "artist": loser.artist if vote.winner_song_id == song_id else winner.artist,
+                },
+                "timestamp": vote.created_at.isoformat(),
+                "context": json.loads(vote.context_metadata) if vote.context_metadata else {},
+            }
+            for vote, winner, loser in matchup_rows
         ],
     )
 
