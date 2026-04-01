@@ -31,7 +31,7 @@ def upgrade() -> None:
 
     op.create_table(
         "users",
-        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column("username", sa.String(length=64), nullable=False, unique=True),
         sa.Column("email", sa.String(length=255), nullable=False, unique=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -39,7 +39,7 @@ def upgrade() -> None:
 
     op.create_table(
         "songs",
-        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("artist", sa.String(length=255), nullable=False),
         sa.Column("album", sa.String(length=255), nullable=True),
@@ -53,7 +53,7 @@ def upgrade() -> None:
 
     op.create_table(
         "pairwise_votes",
-        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("winner_song_id", sa.BigInteger(), sa.ForeignKey("songs.id", ondelete="CASCADE"), nullable=False),
         sa.Column("loser_song_id", sa.BigInteger(), sa.ForeignKey("songs.id", ondelete="CASCADE"), nullable=False),
@@ -63,7 +63,7 @@ def upgrade() -> None:
 
     op.create_table(
         "rating_scores",
-        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("song_id", sa.BigInteger(), sa.ForeignKey("songs.id", ondelete="CASCADE"), nullable=False),
         sa.Column("score", sa.Integer(), nullable=False, server_default="1000"),

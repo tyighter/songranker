@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request as StarletteRequest
 
 from app.config import settings
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models import Settings, Song, User
 
 app = FastAPI(title="SongRanker")
@@ -29,8 +29,7 @@ def get_or_create_settings(db: Session) -> Settings:
     if record is None:
         record = Settings(id=1, is_initialized=False)
         db.add(record)
-        db.commit()
-        db.refresh(record)
+        db.flush()
     return record
 
 
@@ -103,11 +102,11 @@ def resync_tracks(db: Session, app_settings: Settings) -> int:
 
 
 @app.middleware("http")
-def enforce_setup(request: StarletteRequest, call_next):
+async def enforce_setup(request: StarletteRequest, call_next):
     if request.url.path.startswith("/static") or request.url.path in {"/health", "/setup", "/setup/sections", "/resync"}:
-        return call_next(request)
+        return await call_next(request)
 
-    db = next(get_db())
+    db = SessionLocal()
     try:
         app_settings = get_or_create_settings(db)
         if not app_settings.is_initialized:
@@ -118,7 +117,7 @@ def enforce_setup(request: StarletteRequest, call_next):
                 resync_tracks(db, app_settings)
             except Exception:
                 db.rollback()
-        return call_next(request)
+        return await call_next(request)
     finally:
         db.close()
 
@@ -208,7 +207,17 @@ def setup_complete(
     if app_settings.is_initialized:
         return RedirectResponse(url="/", status_code=303)
 
-    user = User(username=username.strip(), email=email.strip())
+    normalized_username = username.strip()
+    normalized_email = email.strip()
+    existing_user = (
+        db.query(User)
+        .filter((User.username == normalized_username) | (User.email == normalized_email))
+        .one_or_none()
+    )
+    if existing_user is not None:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+
+    user = User(username=normalized_username, email=normalized_email)
     db.add(user)
 
     app_settings.plex_url = plex_url.strip()
