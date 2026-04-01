@@ -137,13 +137,16 @@
         <button type="submit">Sign in</button>
       </form>
 
-      <h3>Create user</h3>
-      <form method="post" action="/api/auth/create-user">
-        <label>Username <input type="text" name="username" required /></label>
-        <label>Email <input type="email" name="email" required /></label>
-        <label>Password <input type="password" name="password" required minlength="6" /></label>
-        <button type="submit">Create user</button>
-      </form>
+      <button type="button" class="toggle-inline-btn" id="toggle-create-user">Create new user</button>
+      <div id="create-user-section" hidden>
+        <h3>Create user</h3>
+        <form method="post" action="/api/auth/create-user">
+          <label>Username <input type="text" name="username" required /></label>
+          <label>Email <input type="email" name="email" required /></label>
+          <label>Password <input type="password" name="password" required minlength="6" /></label>
+          <button type="submit">Create user</button>
+        </form>
+      </div>
 
     </div>
   </div>
@@ -153,6 +156,8 @@
     const signinModal = document.getElementById("signin-modal");
     const closeSigninModalBtn = document.getElementById("close-signin-modal");
     const openSigninModalBtn = document.getElementById("open-signin-modal");
+    const toggleCreateUserBtn = document.getElementById("toggle-create-user");
+    const createUserSection = document.getElementById("create-user-section");
     let lastFocusedElement = null;
 
     function getFocusableElements() {
@@ -213,6 +218,13 @@
 
     if (openSigninModalBtn) openSigninModalBtn.addEventListener("click", openSigninModal);
     if (closeSigninModalBtn) closeSigninModalBtn.addEventListener("click", closeSigninModal);
+    if (toggleCreateUserBtn && createUserSection) {
+      toggleCreateUserBtn.addEventListener("click", () => {
+        const isHidden = createUserSection.hidden;
+        createUserSection.hidden = !isHidden;
+        toggleCreateUserBtn.textContent = isHidden ? "Hide new user form" : "Create new user";
+      });
+    }
 
     if (!isAuthenticated && signinModal && !signinModal.hidden) {
       openSigninModal();
