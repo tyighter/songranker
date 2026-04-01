@@ -19,7 +19,8 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("users", sa.Column("password_hash", sa.String(length=255), nullable=True))
     op.execute("UPDATE users SET password_hash = 'bootstrapsalt:b0006bf9fa4356a0243999f5c1650eee65aacff1517198c9dcbbb4158cdf9bbf' WHERE password_hash IS NULL")
-    op.alter_column("users", "password_hash", nullable=False)
+    with op.batch_alter_table("users") as batch_op:
+        batch_op.alter_column("password_hash", existing_type=sa.String(length=255), nullable=False)
 
     op.create_table(
         "user_sessions",
