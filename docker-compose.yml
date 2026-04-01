@@ -1,5 +1,6 @@
 services:
-  app:
+  songranker:
+    container_name: Songranker
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,28 +9,9 @@ services:
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 2112
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: songranker
-      DB_USER: songranker
-      DB_PASSWORD: songranker
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: songranker
-      POSTGRES_USER: songranker
-      POSTGRES_PASSWORD: songranker
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U songranker -d songranker"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      DATABASE_URL: sqlite+pysqlite:////data/songranker.db
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - songranker_data:/data
 
 volumes:
-  pgdata:
+  songranker_data:
