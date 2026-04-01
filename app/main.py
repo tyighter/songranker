@@ -278,25 +278,39 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
     return {"imported": imported, "updated": updated}
 
 
-def _list_plex_libraries(app_settings: AppSettings) -> tuple[list[dict[str, str | None]], str | None]:
+def get_plex_connection_snapshot(app_settings: AppSettings) -> dict[str, Any]:
     libraries: list[dict[str, str | None]] = []
     if not app_settings.plex_url or not app_settings.plex_token:
-        return libraries, "Plex URL and token are required."
+        return {
+            "connection_state": "failure",
+            "connection_error": "Plex URL and token are required.",
+            "libraries": libraries,
+        }
 
     try:
         sections_root = _plex_get_xml(app_settings.plex_url, app_settings.plex_token, "/library/sections")
         for directory in sections_root.findall("Directory"):
             if directory.attrib.get("type") == "artist":
                 libraries.append({"key": directory.attrib.get("key"), "title": directory.attrib.get("title")})
-        return libraries, None
+        return {
+            "connection_state": "success",
+            "connection_error": None,
+            "libraries": libraries,
+        }
     except Exception as exc:
-        return libraries, str(exc)
+        return {
+            "connection_state": "failure",
+            "connection_error": str(exc),
+            "libraries": libraries,
+        }
 
 
 def _plex_connection_payload(app_settings: AppSettings) -> dict[str, Any]:
-    libraries, error = _list_plex_libraries(app_settings)
+    snapshot = get_plex_connection_snapshot(app_settings)
+    libraries = snapshot["libraries"]
+    error = snapshot["connection_error"]
     has_connection_config = bool(app_settings.plex_url and app_settings.plex_token)
-    if error:
+    if snapshot["connection_state"] == "failure":
         connection_status = "error"
     elif has_connection_config:
         connection_status = "connected"
@@ -510,7 +524,9 @@ def setup_page(request: StarletteRequest, db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
     users_count = db.query(func.count(User.id)).scalar() or 0
 
-    libraries, error = _list_plex_libraries(app_settings) if app_settings.plex_url and app_settings.plex_token else ([], None)
+    snapshot = get_plex_connection_snapshot(app_settings)
+    libraries = snapshot["libraries"]
+    error = snapshot["connection_error"]
 
     return templates.TemplateResponse(
         "setup.html",
@@ -607,7 +623,9 @@ def setup_plex(plex_url: str = Form(...), plex_token: str = Form(...), db: Sessi
 @app.get("/api/plex/settings")
 def plex_settings(db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
-    libraries, error = _list_plex_libraries(app_settings)
+    snapshot = get_plex_connection_snapshot(app_settings)
+    libraries = snapshot["libraries"]
+    error = snapshot["connection_error"]
     if error:
         status = error
     elif app_settings.plex_url and app_settings.plex_token:
@@ -637,7 +655,9 @@ def save_plex_settings(
     db.commit()
     db.refresh(app_settings)
 
-    libraries, error = _list_plex_libraries(app_settings)
+    snapshot = get_plex_connection_snapshot(app_settings)
+    libraries = snapshot["libraries"]
+    error = snapshot["connection_error"]
     return {
         "plex_url": app_settings.plex_url or "",
         "plex_token": app_settings.plex_token or "",
@@ -663,7 +683,9 @@ def save_plex_library(plex_music_section_id: str = Form(...), db: Session = Depe
     db.add(app_settings)
     db.commit()
 
-    libraries, error = _list_plex_libraries(app_settings)
+    snapshot = get_plex_connection_snapshot(app_settings)
+    libraries = snapshot["libraries"]
+    error = snapshot["connection_error"]
     return {
         "plex_url": app_settings.plex_url or "",
         "plex_token": app_settings.plex_token or "",
