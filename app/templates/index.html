@@ -128,6 +128,22 @@
       <button type="button" class="modal-close" data-close-modal="settings-modal" aria-label="Close settings dialog">×</button>
       <h2 id="settings-modal-title">Settings</h2>
       <p>Plex settings and sync controls.</p>
+      <form id="plex-credentials-form">
+        <h3>Plex connection</h3>
+        <label>Plex URL <input type="url" id="plex-url-input" name="plex_url" required /></label>
+        <label>Plex Token <input type="password" id="plex-token-input" name="plex_token" required /></label>
+        <button id="save-plex-btn" type="submit">Save Plex credentials</button>
+      </form>
+      <p id="plex-connection-status"></p>
+      <form id="plex-library-form">
+        <h3>Plex music library</h3>
+        <label>Library
+          <select id="plex-library-select" name="plex_music_section_id" required>
+            <option value="">Select one...</option>
+          </select>
+        </label>
+        <button id="save-library-btn" type="submit">Apply library</button>
+      </form>
       <button id="resync-btn" type="button">Manual Plex resync</button>
       <p id="settings-status"></p>
     </div>
@@ -224,7 +240,18 @@
 
     if (isAuthenticated) {
       document.getElementById("open-user-modal").addEventListener("click", () => openModal("user-modal"));
-      document.getElementById("open-settings-modal").addEventListener("click", () => openModal("settings-modal"));
+      const openSettingsModalBtn = document.getElementById("open-settings-modal");
+      const plexCredentialsFormEl = document.getElementById("plex-credentials-form");
+      const plexLibraryFormEl = document.getElementById("plex-library-form");
+      const plexUrlInputEl = document.getElementById("plex-url-input");
+      const plexTokenInputEl = document.getElementById("plex-token-input");
+      const plexConnectionStatusEl = document.getElementById("plex-connection-status");
+      const plexLibrarySelectEl = document.getElementById("plex-library-select");
+
+      openSettingsModalBtn.addEventListener("click", async () => {
+        openModal("settings-modal");
+        await loadPlexSettings();
+      });
 
       const statusEl = document.getElementById("status");
       const settingsStatusEl = document.getElementById("settings-status");
@@ -238,6 +265,33 @@
       let currentPair = null;
       let currentFilters = {};
       let rankingSort = { sort_by: "rank", sort_dir: "asc" };
+
+      function renderPlexLibraries(libraries, selectedSectionId) {
+        const options = ['<option value="">Select one...</option>']
+          .concat((libraries || []).map((library) => `<option value="${library.key || ""}">${library.title || "Untitled"} (${library.key || "?"})</option>`));
+        plexLibrarySelectEl.innerHTML = options.join("");
+        if (selectedSectionId) plexLibrarySelectEl.value = selectedSectionId;
+      }
+
+      function renderPlexStatus(payload) {
+        plexConnectionStatusEl.textContent = payload.status || "Status unavailable";
+      }
+
+      async function loadPlexSettings() {
+        settingsStatusEl.textContent = "Loading Plex settings...";
+        const response = await fetch("/api/plex/settings");
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          settingsStatusEl.textContent = payload.detail || "Unable to load Plex settings.";
+          return;
+        }
+
+        plexUrlInputEl.value = payload.plex_url || "";
+        plexTokenInputEl.value = payload.plex_token || "";
+        renderPlexLibraries(payload.libraries, payload.plex_music_section_id || "");
+        renderPlexStatus(payload);
+        settingsStatusEl.textContent = "";
+      }
 
       function paramsFromObject(values) {
         const params = new URLSearchParams();
@@ -419,6 +473,38 @@
           return;
         }
         settingsStatusEl.textContent = `Resync complete. Imported ${body.imported}, updated ${body.updated}.`;
+      });
+
+      plexCredentialsFormEl.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        settingsStatusEl.textContent = "Saving Plex credentials...";
+        const formData = new FormData(plexCredentialsFormEl);
+        const response = await fetch("/api/plex/settings", { method: "POST", body: formData });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          settingsStatusEl.textContent = payload.detail || "Failed to save Plex credentials.";
+          return;
+        }
+
+        renderPlexLibraries(payload.libraries, payload.plex_music_section_id || "");
+        renderPlexStatus(payload);
+        settingsStatusEl.textContent = "Plex credentials saved.";
+      });
+
+      plexLibraryFormEl.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        settingsStatusEl.textContent = "Saving selected library...";
+        const formData = new FormData(plexLibraryFormEl);
+        const response = await fetch("/api/plex/library", { method: "POST", body: formData });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          settingsStatusEl.textContent = payload.detail || "Failed to save library selection.";
+          return;
+        }
+
+        renderPlexLibraries(payload.libraries, payload.plex_music_section_id || "");
+        renderPlexStatus(payload);
+        settingsStatusEl.textContent = "Library selection saved.";
       });
 
       loadPoolOptions().then(loadNextPair);
