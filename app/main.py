@@ -6,7 +6,6 @@ import logging
 import math
 import secrets
 from datetime import datetime, timedelta, timezone
-from itertools import combinations
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -445,39 +444,81 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
     )
     last_pair = _normalize_pair(last_vote.winner_song_id, last_vote.loser_song_id) if last_vote else None
 
-    best_pair: tuple[Song, Song] | None = None
-    best_key: tuple[float, int, int] | None = None
     songs_by_id = {song.id: song for song in songs}
+    # Avoid O(n^2) pair scans for large libraries.
+    # Instead, evaluate candidate pairs from a bounded neighborhood in rating space.
+    song_match_counts: dict[int, int] = {song_id: 0 for song_id in song_ids}
+    for (song_a_id, song_b_id), count in vote_counts.items():
+        song_match_counts[song_a_id] = song_match_counts.get(song_a_id, 0) + count
+        song_match_counts[song_b_id] = song_match_counts.get(song_b_id, 0) + count
 
-    for song_a_id, song_b_id in combinations(song_ids, 2):
-        pair_key = _normalize_pair(song_a_id, song_b_id)
-        if pair_key == last_pair:
-            continue
+    sorted_song_ids = sorted(song_ids, key=lambda song_id: (ratings.get(song_id, DEFAULT_RATING), song_id))
+    sorted_positions = {song_id: index for index, song_id in enumerate(sorted_song_ids)}
 
-        score_a = ratings.get(song_a_id, DEFAULT_RATING)
-        score_b = ratings.get(song_b_id, DEFAULT_RATING)
-        closeness = abs(score_a - score_b)
-        prior_matches = vote_counts.get(pair_key, 0)
+    anchor_ids = sorted(
+        song_ids,
+        key=lambda song_id: (
+            song_match_counts.get(song_id, 0),
+            abs(ratings.get(song_id, DEFAULT_RATING) - DEFAULT_RATING),
+            song_id,
+        ),
+    )
 
-        rank_key = (closeness + (prior_matches * 25), pair_key[0], pair_key[1])
+    best_pair_ids: tuple[int, int] | None = None
+    best_key: tuple[float, int, int] | None = None
+    anchor_limit = min(len(anchor_ids), 50)
+    neighbor_window = min(max(len(song_ids) // 10, 10), 100)
+    for song_a_id in anchor_ids[:anchor_limit]:
+        position = sorted_positions[song_a_id]
+        left_index = max(0, position - neighbor_window)
+        right_index = min(len(sorted_song_ids), position + neighbor_window + 1)
+        for song_b_id in sorted_song_ids[left_index:right_index]:
+            if song_a_id == song_b_id:
+                continue
+            pair_key = _normalize_pair(song_a_id, song_b_id)
+            if pair_key == last_pair:
+                continue
 
-        if best_key is None or rank_key < best_key:
-            best_key = rank_key
-            best_pair = (songs_by_id[song_a_id], songs_by_id[song_b_id])
+            score_a = ratings.get(song_a_id, DEFAULT_RATING)
+            score_b = ratings.get(song_b_id, DEFAULT_RATING)
+            closeness = abs(score_a - score_b)
+            prior_matches = vote_counts.get(pair_key, 0)
+            exposure_penalty = song_match_counts.get(song_b_id, 0) * 0.01
+            rank_key = (closeness + (prior_matches * 25) + exposure_penalty, pair_key[0], pair_key[1])
 
-    if best_pair:
+            if best_key is None or rank_key < best_key:
+                best_key = rank_key
+                best_pair_ids = pair_key
+
+    if best_pair_ids:
         elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
         logger.info(
             "Pair selected | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
             user_id,
             filters,
             len(songs),
-            [best_pair[0].id, best_pair[1].id],
+            [best_pair_ids[0], best_pair_ids[1]],
             elapsed_ms,
         )
-        return best_pair
+        return songs_by_id[best_pair_ids[0]], songs_by_id[best_pair_ids[1]]
 
-    fallback_song_a_id, fallback_song_b_id = _normalize_pair(song_ids[0], song_ids[1])
+    fallback_song_a_id: int | None = None
+    fallback_song_b_id: int | None = None
+    for song_a_id in song_ids:
+        for song_b_id in song_ids:
+            if song_a_id == song_b_id:
+                continue
+            candidate_key = _normalize_pair(song_a_id, song_b_id)
+            if candidate_key == last_pair:
+                continue
+            fallback_song_a_id, fallback_song_b_id = candidate_key
+            break
+        if fallback_song_a_id is not None and fallback_song_b_id is not None:
+            break
+
+    if fallback_song_a_id is None or fallback_song_b_id is None:
+        return None
+
     elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
     logger.info(
         "Pair selected via fallback | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
