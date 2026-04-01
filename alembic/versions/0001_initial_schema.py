@@ -18,6 +18,18 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "settings",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column("is_initialized", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("plex_url", sa.String(length=512), nullable=True),
+        sa.Column("plex_token", sa.String(length=255), nullable=True),
+        sa.Column("plex_library_section_id", sa.String(length=64), nullable=True),
+        sa.Column("last_resync_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+
+    op.create_table(
         "users",
         sa.Column("id", sa.BigInteger(), primary_key=True),
         sa.Column("username", sa.String(length=64), nullable=False, unique=True),
@@ -30,7 +42,12 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), primary_key=True),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("artist", sa.String(length=255), nullable=False),
+        sa.Column("album", sa.String(length=255), nullable=True),
+        sa.Column("year", sa.Integer(), nullable=True),
+        sa.Column("decade", sa.String(length=16), nullable=True),
+        sa.Column("plex_rating_key", sa.String(length=64), nullable=True, unique=True),
         sa.Column("source_uri", sa.Text(), nullable=True),
+        sa.Column("last_synced_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
 
@@ -56,9 +73,11 @@ def upgrade() -> None:
     op.create_unique_constraint("uq_rating_scores_user_song", "rating_scores", ["user_id", "song_id"])
 
 
+
 def downgrade() -> None:
     op.drop_constraint("uq_rating_scores_user_song", "rating_scores", type_="unique")
     op.drop_table("rating_scores")
     op.drop_table("pairwise_votes")
     op.drop_table("songs")
     op.drop_table("users")
+    op.drop_table("settings")

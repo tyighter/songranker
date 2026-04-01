@@ -8,9 +8,13 @@
 </head>
 <body>
   <main>
-    <h1>SongRanker scaffold is running</h1>
+    <h1>SongRanker</h1>
     <p>App bound to {{ app_host }}:{{ app_port }}</p>
     <p>Health endpoint: <a href="/health">/health</a></p>
+    <p>Cached songs available for ranking: <strong>{{ song_count }}</strong></p>
+    <form method="post" action="/resync">
+      <button type="submit">Manual Plex metadata resync</button>
+    </form>
   </main>
 </body>
 </html>

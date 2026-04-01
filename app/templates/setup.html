@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SongRanker Setup</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main>
+    <h1>SongRanker setup wizard</h1>
+    <p>Complete onboarding to initialize app state and import your Plex music library.</p>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if sections %}
+    <section>
+      <h2>Step 3: Select music library section</h2>
+      <form method="post" action="/setup/complete">
+        <input type="hidden" name="username" value="{{ form_data.username }}" />
+        <input type="hidden" name="email" value="{{ form_data.email }}" />
+        <input type="hidden" name="plex_url" value="{{ form_data.plex_url }}" />
+        <input type="hidden" name="plex_token" value="{{ form_data.plex_token }}" />
+
+        <label for="plex_library_section_id">Library section</label>
+        <select id="plex_library_section_id" name="plex_library_section_id" required>
+          {% for section in sections %}
+            <option value="{{ section.id }}">{{ section.title }} ({{ section.id }})</option>
+          {% endfor %}
+        </select>
+
+        <button type="submit">Finish setup + initial import</button>
+      </form>
+    </section>
+    {% else %}
+    <section>
+      <h2>Step 1 + 2: User and Plex details</h2>
+      <form method="post" action="/setup/sections">
+        <label for="username">First local username</label>
+        <input id="username" name="username" value="{{ form_data.get('username', '') }}" required />
+
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" value="{{ form_data.get('email', '') }}" required />
+
+        <label for="plex_url">Plex server URL</label>
+        <input id="plex_url" name="plex_url" placeholder="http://localhost:32400" value="{{ form_data.get('plex_url', '') }}" required />
+
+        <label for="plex_token">Plex token</label>
+        <input id="plex_token" name="plex_token" value="{{ form_data.get('plex_token', '') }}" required />
+
+        <button type="submit">Continue to library selection</button>
+      </form>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
