@@ -177,7 +177,7 @@
     }
 
     function closeSigninModal() {
-      if (!signinModal || !isAuthenticated) return;
+      if (!signinModal) return;
       signinModal.hidden = true;
       signinModal.setAttribute("aria-hidden", "true");
       document.body.classList.remove("modal-open");
@@ -228,6 +228,11 @@
 
     if (!isAuthenticated && signinModal && !signinModal.hidden) {
       openSigninModal();
+    }
+
+    const sessionSignedInText = Array.from(document.querySelectorAll("main p")).find((el) => el.textContent.includes("Signed in as"));
+    if (signinModal && sessionSignedInText) {
+      closeSigninModal();
     }
 
     if (isAuthenticated) {
