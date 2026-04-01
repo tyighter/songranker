@@ -8,9 +8,122 @@
 </head>
 <body>
   <main>
-    <h1>SongRanker scaffold is running</h1>
+    <h1>SongRanker</h1>
     <p>App bound to {{ app_host }}:{{ app_port }}</p>
-    <p>Health endpoint: <a href="/health">/health</a></p>
+
+    <section class="panel">
+      <h2>Comparison Controls</h2>
+      <label>User ID <input type="number" id="user-id" value="1" min="1" /></label>
+      <label>Artist filter <input type="text" id="artist-filter" placeholder="optional exact artist" /></label>
+      <label>Title contains <input type="text" id="title-filter" placeholder="optional text" /></label>
+      <button id="next-pair-btn">Get next pair</button>
+      <p id="status"></p>
+    </section>
+
+    <section class="panel" id="pair-panel" hidden>
+      <h2>Current Pair</h2>
+      <div id="pair-content"></div>
+      <div class="actions">
+        <button id="vote-left">Vote left song</button>
+        <button id="vote-right">Vote right song</button>
+      </div>
+    </section>
   </main>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const pairPanel = document.getElementById("pair-panel");
+    const pairContent = document.getElementById("pair-content");
+    const userIdEl = document.getElementById("user-id");
+    const artistFilterEl = document.getElementById("artist-filter");
+    const titleFilterEl = document.getElementById("title-filter");
+
+    let currentPair = null;
+    let currentFilters = {};
+
+    function collectFilters() {
+      const filters = {};
+      if (artistFilterEl.value.trim()) {
+        filters.artist = artistFilterEl.value.trim();
+      }
+      if (titleFilterEl.value.trim()) {
+        filters.title_query = titleFilterEl.value.trim();
+      }
+      return filters;
+    }
+
+    function queryFromFilters(userId, filters) {
+      const params = new URLSearchParams({ user_id: userId });
+      if (filters.artist) params.set("artist", filters.artist);
+      if (filters.title_query) params.set("title_query", filters.title_query);
+      return params.toString();
+    }
+
+    async function loadNextPair() {
+      const userId = Number(userIdEl.value);
+      currentFilters = collectFilters();
+      const query = queryFromFilters(userId, currentFilters);
+
+      statusEl.textContent = "Loading next pair...";
+      pairPanel.hidden = true;
+
+      const response = await fetch(`/api/rate/next?${query}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        statusEl.textContent = body.detail || "No pair available.";
+        return;
+      }
+
+      const payload = await response.json();
+      currentPair = payload.pair;
+      pairContent.innerHTML = `
+        <div class="song-card">
+          <h3>${currentPair[0].title}</h3>
+          <p>${currentPair[0].artist}</p>
+          <small>Score: ${currentPair[0].score}</small>
+        </div>
+        <div class="song-card">
+          <h3>${currentPair[1].title}</h3>
+          <p>${currentPair[1].artist}</p>
+          <small>Score: ${currentPair[1].score}</small>
+        </div>
+      `;
+      pairPanel.hidden = false;
+      statusEl.textContent = "Vote to update ranking.";
+    }
+
+    async function submitVote(winnerIndex) {
+      if (!currentPair) return;
+
+      const userId = Number(userIdEl.value);
+      const winner = currentPair[winnerIndex];
+      const loser = currentPair[winnerIndex === 0 ? 1 : 0];
+
+      const response = await fetch("/api/rate/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          winner_song_id: winner.song_id,
+          loser_song_id: loser.song_id,
+          filters: currentFilters,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        statusEl.textContent = body.detail || "Vote failed.";
+        return;
+      }
+
+      const payload = await response.json();
+      statusEl.textContent = `Vote saved. ${payload.winner.title} is now ${payload.winner.score}.`;
+      await loadNextPair();
+    }
+
+    document.getElementById("next-pair-btn").addEventListener("click", loadNextPair);
+    document.getElementById("vote-left").addEventListener("click", () => submitVote(0));
+    document.getElementById("vote-right").addEventListener("click", () => submitVote(1));
+  </script>
 </body>
 </html>
