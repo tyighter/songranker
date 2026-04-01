@@ -118,3 +118,25 @@ By default, `docker-compose.yml` runs a single container and stores SQLite data 
   - Manually refreshes cached song metadata from Plex so ranking can continue even when Plex is temporarily unavailable.
 
 A periodic background job also attempts Plex resync hourly once setup is complete.
+
+## Diagnosing Plex resync failures
+
+SongRanker writes logs to both container stdout and `/log.log` inside the container.
+
+Useful commands:
+
+```bash
+# Follow runtime logs from Docker
+docker compose logs -f songranker
+
+# Show the most recent lines from the in-container log file
+docker compose exec songranker sh -lc "tail -n 200 /log.log"
+```
+
+When a manual resync fails (`POST /api/plex/resync`), the app now writes a full stack trace with the message:
+
+- `Manual Plex resync failed`
+
+Periodic hourly failures are logged with:
+
+- `Periodic Plex sync failed`

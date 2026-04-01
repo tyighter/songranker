@@ -32,6 +32,7 @@ ELO_K = 24
 SESSION_COOKIE_NAME = "songranker_session"
 SESSION_TTL_DAYS = 30
 LOG_FILE_PATH = Path("/log.log")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SongRanker")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -226,6 +227,7 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
     if not app_settings.plex_url or not app_settings.plex_token or not app_settings.plex_music_section_id:
         raise HTTPException(status_code=400, detail="Plex settings are incomplete")
 
+    logger.info("Starting Plex sync for section %s", app_settings.plex_music_section_id)
     imported = 0
     updated = 0
     page_size = 200
@@ -284,6 +286,12 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
 
     app_settings.last_sync_at = datetime.now(timezone.utc)
     db.commit()
+    logger.info(
+        "Plex sync completed successfully for section %s (imported=%d, updated=%d)",
+        app_settings.plex_music_section_id,
+        imported,
+        updated,
+    )
 
     return {"imported": imported, "updated": updated}
 
@@ -484,7 +492,7 @@ async def _periodic_sync_loop():
                 _sync_tracks_from_plex(db, app_settings)
         except Exception:
             db.rollback()
-            logging.getLogger(__name__).exception("Periodic Plex sync failed")
+            logger.exception("Periodic Plex sync failed")
         finally:
             db.close()
 
@@ -492,7 +500,7 @@ async def _periodic_sync_loop():
 @app.on_event("startup")
 async def startup_event():
     _configure_logging()
-    logging.getLogger(__name__).info("Logging initialized at %s (weekly rotation enabled)", LOG_FILE_PATH)
+    logger.info("Logging initialized at %s (weekly rotation enabled)", LOG_FILE_PATH)
     asyncio.create_task(_periodic_sync_loop())
 
 
@@ -764,8 +772,13 @@ def resync_plex(
     _: User = Depends(_require_current_user),
 ):
     app_settings = _get_or_create_settings(db)
-    result = _sync_tracks_from_plex(db, app_settings)
-    return {"status": "ok", **result}
+    try:
+        result = _sync_tracks_from_plex(db, app_settings)
+        return {"status": "ok", **result}
+    except Exception:
+        db.rollback()
+        logger.exception("Manual Plex resync failed")
+        raise
 
 
 @app.get("/api/rate/next", response_model=NextPairResponse)
