@@ -141,7 +141,10 @@ def _current_session(db: Session, request: StarletteRequest) -> UserSession | No
     session = db.query(UserSession).filter(UserSession.session_token == token).first()
     if session is None:
         return None
-    if session.expires_at <= now:
+    expires_at = session.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
         db.delete(session)
         db.commit()
         return None
