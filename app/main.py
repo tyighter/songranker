@@ -226,51 +226,61 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
     if not app_settings.plex_url or not app_settings.plex_token or not app_settings.plex_music_section_id:
         raise HTTPException(status_code=400, detail="Plex settings are incomplete")
 
-    root = _plex_get_xml(
-        app_settings.plex_url,
-        app_settings.plex_token,
-        f"/library/sections/{app_settings.plex_music_section_id}/all",
-    )
-
     imported = 0
     updated = 0
+    page_size = 200
+    start = 0
 
-    for track in root.findall("Track"):
-        rating_key = track.attrib.get("ratingKey")
-        if not rating_key:
-            continue
+    while True:
+        root = _plex_get_xml(
+            app_settings.plex_url,
+            app_settings.plex_token,
+            f"/library/sections/{app_settings.plex_music_section_id}/all?type=10&X-Plex-Container-Start={start}&X-Plex-Container-Size={page_size}",
+        )
+        tracks = root.findall("Track")
+        if not tracks:
+            break
 
-        title = track.attrib.get("title", "Unknown")
-        artist = track.attrib.get("grandparentTitle") or track.attrib.get("originalTitle") or "Unknown"
-        album = track.attrib.get("parentTitle")
-        year_raw = track.attrib.get("year")
-        year = int(year_raw) if year_raw and year_raw.isdigit() else None
-        source_uri = track.attrib.get("key")
+        for track in tracks:
+            rating_key = track.attrib.get("ratingKey")
+            if not rating_key:
+                continue
 
-        existing = db.query(Song).filter(Song.plex_rating_key == rating_key).first()
-        if existing:
-            existing.title = title
-            existing.artist = artist
-            existing.album = album
-            existing.year = year
-            existing.decade = _decade_for_year(year)
-            existing.source_uri = source_uri
-            existing.updated_at = datetime.now(timezone.utc)
-            updated += 1
-        else:
-            db.add(
-                Song(
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    year=year,
-                    decade=_decade_for_year(year),
-                    plex_rating_key=rating_key,
-                    source_uri=source_uri,
-                    updated_at=datetime.now(timezone.utc),
+            title = track.attrib.get("title", "Unknown")
+            artist = track.attrib.get("grandparentTitle") or track.attrib.get("originalTitle") or "Unknown"
+            album = track.attrib.get("parentTitle")
+            year_raw = track.attrib.get("year")
+            year = int(year_raw) if year_raw and year_raw.isdigit() else None
+            source_uri = track.attrib.get("key")
+
+            existing = db.query(Song).filter(Song.plex_rating_key == rating_key).first()
+            if existing:
+                existing.title = title
+                existing.artist = artist
+                existing.album = album
+                existing.year = year
+                existing.decade = _decade_for_year(year)
+                existing.source_uri = source_uri
+                existing.updated_at = datetime.now(timezone.utc)
+                updated += 1
+            else:
+                db.add(
+                    Song(
+                        title=title,
+                        artist=artist,
+                        album=album,
+                        year=year,
+                        decade=_decade_for_year(year),
+                        plex_rating_key=rating_key,
+                        source_uri=source_uri,
+                        updated_at=datetime.now(timezone.utc),
+                    )
                 )
-            )
-            imported += 1
+                imported += 1
+
+        if len(tracks) < page_size:
+            break
+        start += page_size
 
     app_settings.last_sync_at = datetime.now(timezone.utc)
     db.commit()
