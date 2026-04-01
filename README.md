@@ -38,6 +38,45 @@ docker compose down -v
 docker compose up --build
 ```
 
+#### Migration troubleshooting
+
+##### Error signature: `sqlite3.OperationalError: table ... already exists`
+
+This usually means the database schema already exists in the volume, but Alembic revision tracking is out of sync.
+
+Decision tree:
+
+- **If data can be discarded (fastest recovery):**
+  1. Remove containers + named volume.
+  2. Start fresh so startup migrations recreate the schema.
+
+  ```bash
+  docker compose down -v
+  docker compose up --build
+  ```
+
+- **If data must be preserved (safe recovery):**
+  1. Inspect the existing schema and migration state.
+  2. Choose the Alembic revision that matches the already-existing tables.
+  3. Stamp the DB to that revision (without applying DDL).
+  4. Upgrade to head normally.
+
+  ```bash
+  # Current stamped revision (if any)
+  docker compose exec songranker alembic current
+
+  # Full revision list to choose from
+  docker compose exec songranker alembic history
+
+  # Mark DB as being at the chosen matching revision
+  docker compose exec songranker alembic stamp <revision>
+
+  # Apply only remaining migrations
+  docker compose exec songranker alembic upgrade head
+  ```
+
+> ⚠️ Avoid mixing manual schema creation (for example, running ad-hoc `CREATE TABLE` statements) with Alembic-managed migrations. Let Alembic own schema evolution to prevent drift and repeated "already exists" failures.
+
 ### 3) Open setup wizard
 
 On first launch, SongRanker redirects all app traffic to `/setup` until initialization is complete.
