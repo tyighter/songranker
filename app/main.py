@@ -1,10 +1,13 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import math
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Any
-from urllib.parse import urljoin, urlencode
+from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -19,10 +22,12 @@ from starlette.requests import Request as StarletteRequest
 
 from app.config import settings
 from app.db import SessionLocal, get_db
-from app.models import AppSettings, PairwiseVote, RatingScore, RatingScoreSnapshot, Song, User
+from app.models import AppSettings, PairwiseVote, RatingScore, RatingScoreSnapshot, Song, User, UserSession
 
 DEFAULT_RATING = 1000
 ELO_K = 24
+SESSION_COOKIE_NAME = "songranker_session"
+SESSION_TTL_DAYS = 30
 
 app = FastAPI(title="SongRanker")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -35,7 +40,6 @@ class NextPairResponse(BaseModel):
 
 
 class VoteRequest(BaseModel):
-    user_id: int
     winner_song_id: int
     loser_song_id: int
     filters: dict[str, Any] = Field(default_factory=dict)
@@ -46,6 +50,21 @@ class VoteResponse(BaseModel):
     loser: dict[str, Any]
 
 
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 600_000).hex()
+    return f"{salt}:{digest}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt, expected = stored_hash.split(":", 1)
+    except ValueError:
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 600_000).hex()
+    return hmac.compare_digest(expected, actual)
+
+
 def _get_or_create_settings(db: Session) -> AppSettings:
     app_settings = db.query(AppSettings).filter(AppSettings.id == 1).first()
     if app_settings is None:
@@ -54,6 +73,64 @@ def _get_or_create_settings(db: Session) -> AppSettings:
         db.commit()
         db.refresh(app_settings)
     return app_settings
+
+
+def _current_session(db: Session, request: StarletteRequest) -> UserSession | None:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        return None
+
+    now = datetime.now(timezone.utc)
+    session = db.query(UserSession).filter(UserSession.session_token == token).first()
+    if session is None:
+        return None
+    if session.expires_at <= now:
+        db.delete(session)
+        db.commit()
+        return None
+    return session
+
+
+def _require_current_user(request: StarletteRequest, db: Session = Depends(get_db)) -> User:
+    session = _current_session(db, request)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Sign in required")
+
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Session user does not exist")
+    return user
+
+
+def _create_session_for_user(db: Session, user_id: int) -> str:
+    token = secrets.token_urlsafe(48)
+    now = datetime.now(timezone.utc)
+    db.add(
+        UserSession(
+            session_token=token,
+            user_id=user_id,
+            expires_at=now + timedelta(days=SESSION_TTL_DAYS),
+        )
+    )
+    db.commit()
+    return token
+
+
+def _session_redirect(url: str, token: str) -> RedirectResponse:
+    response = RedirectResponse(url=url, status_code=303)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=SESSION_TTL_DAYS * 24 * 60 * 60,
+    )
+    return response
+
+
+def _clear_session_cookie(response: RedirectResponse):
+    response.delete_cookie(SESSION_COOKIE_NAME)
 
 
 def _plex_get_xml(plex_url: str, plex_token: str, path: str) -> ElementTree.Element:
@@ -191,9 +268,7 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
         .order_by(PairwiseVote.created_at.desc(), PairwiseVote.id.desc())
         .first()
     )
-    last_pair = (
-        _normalize_pair(last_vote.winner_song_id, last_vote.loser_song_id) if last_vote else None
-    )
+    last_pair = _normalize_pair(last_vote.winner_song_id, last_vote.loser_song_id) if last_vote else None
 
     best_pair: tuple[Song, Song] | None = None
     best_key: tuple[float, int, int] | None = None
@@ -224,7 +299,11 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
 
 @app.middleware("http")
 async def setup_guard(request: StarletteRequest, call_next):
-    if request.url.path.startswith("/static") or request.url.path in {"/health", "/setup"} or request.url.path.startswith("/api/setup"):
+    if request.url.path.startswith("/static") or request.url.path in {
+        "/health",
+        "/setup",
+        "/signin",
+    } or request.url.path.startswith("/api/setup") or request.url.path.startswith("/api/auth"):
         return await call_next(request)
 
     db = SessionLocal()
@@ -263,14 +342,40 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/signin", response_class=HTMLResponse)
+def signin_page(request: StarletteRequest, db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.username.asc()).all()
+    return templates.TemplateResponse(
+        "signin.html",
+        {
+            "request": request,
+            "users": users,
+            "notice": "Login is lightweight and not secure yet; use only on trusted/local networks.",
+        },
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
-def index(request: StarletteRequest):
+def index(request: StarletteRequest, db: Session = Depends(get_db)):
+    session = _current_session(db, request)
+    if session is None:
+        return RedirectResponse(url="/signin", status_code=303)
+
+    current_user = db.query(User).filter(User.id == session.user_id).first()
+    if current_user is None:
+        return RedirectResponse(url="/signin", status_code=303)
+
+    users = db.query(User).order_by(User.username.asc()).all()
+
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "app_host": settings.app_host,
             "app_port": settings.app_port,
+            "current_user": current_user,
+            "users": users,
+            "notice": "Auth is intentionally lightweight and not secure yet.",
         },
     )
 
@@ -304,13 +409,74 @@ def setup_page(request: StarletteRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/setup/user")
-def setup_user(username: str = Form(...), email: str = Form(...), db: Session = Depends(get_db)):
+def setup_user(
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
     existing = db.query(User).filter((User.username == username) | (User.email == email)).first()
     if existing:
         raise HTTPException(status_code=400, detail="User with username or email already exists")
-    db.add(User(username=username, email=email))
+    db.add(User(username=username, email=email, password_hash=_hash_password(password)))
     db.commit()
     return RedirectResponse(url="/setup", status_code=303)
+
+
+@app.post("/api/auth/create-user")
+def create_user(
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    existing = db.query(User).filter((User.username == username) | (User.email == email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User with username or email already exists")
+
+    db.add(User(username=username, email=email, password_hash=_hash_password(password)))
+    db.commit()
+    return RedirectResponse(url="/signin", status_code=303)
+
+
+@app.post("/api/auth/signin")
+def signin(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.username == username).first()
+    if user is None or not _verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username/password")
+
+    token = _create_session_for_user(db, user.id)
+    return _session_redirect(url="/", token=token)
+
+
+@app.post("/api/auth/switch-user")
+def switch_user(
+    user_id: int = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not _verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials for selected user")
+
+    token = _create_session_for_user(db, user.id)
+    return _session_redirect(url="/", token=token)
+
+
+@app.post("/api/auth/signout")
+def signout(request: StarletteRequest, db: Session = Depends(get_db)):
+    session = _current_session(db, request)
+    if session is not None:
+        db.delete(session)
+        db.commit()
+
+    response = RedirectResponse(url="/signin", status_code=303)
+    _clear_session_cookie(response)
+    return response
 
 
 @app.post("/api/setup/plex")
@@ -340,7 +506,10 @@ def setup_import(db: Session = Depends(get_db)):
 
 
 @app.post("/api/plex/resync")
-def resync_plex(db: Session = Depends(get_db)):
+def resync_plex(
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
     app_settings = _get_or_create_settings(db)
     result = _sync_tracks_from_plex(db, app_settings)
     return {"status": "ok", **result}
@@ -348,11 +517,11 @@ def resync_plex(db: Session = Depends(get_db)):
 
 @app.get("/api/rate/next", response_model=NextPairResponse)
 def get_next_pair(
-    user_id: int = Query(...),
     artist: str | None = Query(default=None),
     title_query: str | None = Query(default=None),
     song_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
 ):
     filters: dict[str, Any] = {}
     if artist:
@@ -362,14 +531,14 @@ def get_next_pair(
     if song_ids:
         filters["song_ids"] = [int(song_id.strip()) for song_id in song_ids.split(",") if song_id.strip()]
 
-    pair = _candidate_pair_for_user(db=db, user_id=user_id, filters=filters)
+    pair = _candidate_pair_for_user(db=db, user_id=current_user.id, filters=filters)
     if pair is None:
         raise HTTPException(status_code=404, detail="Not enough songs available for this filter context")
 
     song_ids_for_pair = [pair[0].id, pair[1].id]
     rating_rows = (
         db.query(RatingScore)
-        .filter(and_(RatingScore.user_id == user_id, RatingScore.song_id.in_(song_ids_for_pair)))
+        .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id.in_(song_ids_for_pair)))
         .all()
     )
     rating_lookup = {row.song_id: row.score for row in rating_rows}
@@ -389,7 +558,11 @@ def get_next_pair(
 
 
 @app.post("/api/rate/vote", response_model=VoteResponse)
-def cast_vote(payload: VoteRequest, db: Session = Depends(get_db)):
+def cast_vote(
+    payload: VoteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
     if payload.winner_song_id == payload.loser_song_id:
         raise HTTPException(status_code=400, detail="winner_song_id and loser_song_id must differ")
 
@@ -406,25 +579,25 @@ def cast_vote(payload: VoteRequest, db: Session = Depends(get_db)):
     winner_score = (
         db.query(RatingScore)
         .filter(
-            RatingScore.user_id == payload.user_id,
+            RatingScore.user_id == current_user.id,
             RatingScore.song_id == payload.winner_song_id,
         )
         .first()
     )
     if winner_score is None:
-        winner_score = RatingScore(user_id=payload.user_id, song_id=payload.winner_song_id, score=DEFAULT_RATING)
+        winner_score = RatingScore(user_id=current_user.id, song_id=payload.winner_song_id, score=DEFAULT_RATING)
         db.add(winner_score)
 
     loser_score = (
         db.query(RatingScore)
         .filter(
-            RatingScore.user_id == payload.user_id,
+            RatingScore.user_id == current_user.id,
             RatingScore.song_id == payload.loser_song_id,
         )
         .first()
     )
     if loser_score is None:
-        loser_score = RatingScore(user_id=payload.user_id, song_id=payload.loser_song_id, score=DEFAULT_RATING)
+        loser_score = RatingScore(user_id=current_user.id, song_id=payload.loser_song_id, score=DEFAULT_RATING)
         db.add(loser_score)
 
     expected_winner = _expected_score(winner_score.score, loser_score.score)
@@ -434,7 +607,7 @@ def cast_vote(payload: VoteRequest, db: Session = Depends(get_db)):
     loser_score.score = round(loser_score.score + ELO_K * (0 - expected_loser))
 
     vote = PairwiseVote(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         winner_song_id=payload.winner_song_id,
         loser_song_id=payload.loser_song_id,
         context_metadata=json.dumps(payload.filters, sort_keys=True),
@@ -445,7 +618,7 @@ def cast_vote(payload: VoteRequest, db: Session = Depends(get_db)):
     db.add(
         RatingScoreSnapshot(
             vote_id=vote.id,
-            user_id=payload.user_id,
+            user_id=current_user.id,
             song_id=payload.winner_song_id,
             score=winner_score.score,
         )
@@ -453,7 +626,7 @@ def cast_vote(payload: VoteRequest, db: Session = Depends(get_db)):
     db.add(
         RatingScoreSnapshot(
             vote_id=vote.id,
-            user_id=payload.user_id,
+            user_id=current_user.id,
             song_id=payload.loser_song_id,
             score=loser_score.score,
         )

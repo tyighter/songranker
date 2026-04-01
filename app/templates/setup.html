@@ -17,9 +17,11 @@
     <section class="panel">
       <h2>1) Create first local user</h2>
       <p>Existing users: {{ users_count }}</p>
+      <p class="warning">Local auth only (not secure yet).</p>
       <form method="post" action="/api/setup/user">
         <label>Username <input type="text" name="username" required /></label>
         <label>Email <input type="email" name="email" required /></label>
+        <label>Password <input type="password" name="password" required minlength="6" /></label>
         <button type="submit">Create user</button>
       </form>
     </section>

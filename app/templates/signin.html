@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SongRanker Sign In</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main>
+    <h1>SongRanker Sign In</h1>
+    <p class="warning">{{ notice }}</p>
+
+    <section class="panel">
+      <h2>Sign in</h2>
+      <form method="post" action="/api/auth/signin">
+        <label>Username <input type="text" name="username" required /></label>
+        <label>Password <input type="password" name="password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Create user</h2>
+      <form method="post" action="/api/auth/create-user">
+        <label>Username <input type="text" name="username" required /></label>
+        <label>Email <input type="email" name="email" required /></label>
+        <label>Password <input type="password" name="password" required minlength="6" /></label>
+        <button type="submit">Create user</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Existing users</h2>
+      <ul>
+        {% for user in users %}
+        <li>{{ user.username }} ({{ user.email }})</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
