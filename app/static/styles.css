@@ -1,13 +1,14 @@
 body {
-  font-family: Arial, sans-serif;
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   margin: 0;
-  padding: 2rem;
-  background: #fafafa;
-  color: #111;
+  padding: 2rem 1.25rem 2.5rem;
+  background: #f3f5f8;
+  color: #1b2430;
+  line-height: 1.45;
 }
 
 main {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
 }
 
@@ -25,11 +26,11 @@ main {
 }
 
 .panel {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  background: #ffffff;
+  border: 1px solid #e5e9f0;
+  border-radius: 12px;
+  padding: 1.1rem;
+  margin-bottom: 1.1rem;
 }
 
 label {
@@ -40,8 +41,12 @@ label {
 input, select {
   width: 100%;
   max-width: 360px;
-  padding: 0.5rem;
+  padding: 0.55rem 0.65rem;
   margin-top: 0.25rem;
+  border: 1px solid #d6dde8;
+  border-radius: 10px;
+  background: #f8fafd;
+  color: #1b2430;
 }
 
 table {
@@ -51,7 +56,7 @@ table {
 }
 
 th, td {
-  border: 1px solid #ddd;
+  border: 1px solid #e5e9f0;
   padding: 0.5rem;
   text-align: left;
   vertical-align: top;
@@ -68,14 +73,21 @@ code {
 }
 
 button {
-  padding: 0.6rem 1rem;
+  padding: 0.55rem 0.95rem;
   margin-top: 0.5rem;
   margin-right: 0.5rem;
   cursor: pointer;
+  border: 1px solid #2f6fec;
+  border-radius: 999px;
+  background: #2f6fec;
+  color: #fff;
+  font-weight: 600;
 }
 
 button.secondary {
-  background: #f0f3f8;
+  background: #eef3ff;
+  border-color: #cedaf8;
+  color: #2a4d93;
 }
 
 #pair-content {
@@ -85,19 +97,42 @@ button.secondary {
 }
 
 .song-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 0.75rem;
+  border: 1px solid #d8e0eb;
+  border-radius: 14px;
+  padding: 0.8rem;
+  background: #f8fafd;
 }
 
 .album-art {
   width: 100%;
-  border-radius: 6px;
-  border: 1px solid #ddd;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #d2dae6;
+  background: #eef2f8;
+  margin-bottom: 0.75rem;
+}
+
+.song-title {
+  margin: 0 0 0.45rem;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  color: #0f1726;
+}
+
+.song-meta {
+  margin: 0.2rem 0;
+  color: #526173;
 }
 
 .warning {
   color: #8a4b00;
+  background: #fff4e5;
+  border: 1px solid #ffd7a6;
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
 }
 
 .filter-summary {
@@ -141,11 +176,12 @@ button.secondary {
 
 .modal {
   background: #fff;
-  border-radius: 10px;
+  border-radius: 14px;
+  border: 1px solid #e5e9f0;
   width: min(900px, 100%);
   max-height: 90vh;
   overflow: auto;
-  padding: 1rem;
+  padding: 1.1rem;
   position: relative;
 }
 
@@ -173,6 +209,10 @@ body.modal-open {
 }
 
 @media (max-width: 640px) {
+  body {
+    padding: 1rem 0.75rem 1.5rem;
+  }
+
   .top-actions {
     width: 100%;
   }
@@ -189,5 +229,9 @@ body.modal-open {
   .filter-modal-actions button {
     flex: 1;
     margin-right: 0;
+  }
+
+  .song-title {
+    font-size: 1.25rem;
   }
 }
