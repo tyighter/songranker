@@ -625,7 +625,21 @@
         currentPair = payload.pair;
         pairContent.innerHTML = payload.pair.map((song, index) => `
           <div class="song-card">
-            <img class="album-art" src="${song.album_art_url || '/static/placeholder-album.svg'}" alt="Album art for ${song.title}" onerror="this.src='/static/placeholder-album.svg';" />
+            <div class="album-media-shell" data-song-index="${index}">
+              <button
+                type="button"
+                class="album-art-trigger"
+                data-youtube-trigger
+                data-song-index="${index}"
+                data-song-title="${escapeHtml(song.title)}"
+                data-song-artist="${escapeHtml(song.artist)}"
+                aria-label="Play ${escapeHtml(song.title)} by ${escapeHtml(song.artist)} on YouTube"
+              >
+                <img class="album-art" src="${song.album_art_url || '/static/placeholder-album.svg'}" alt="Album art for ${song.title}" onerror="this.src='/static/placeholder-album.svg';" />
+              </button>
+              <div class="album-embed-slot" data-youtube-embed-slot></div>
+              <p class="album-embed-message" data-youtube-status aria-live="polite"></p>
+            </div>
             <h3 class="song-title">${song.title}</h3>
             <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
             <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
@@ -651,10 +665,69 @@
         pairContent.querySelectorAll("[data-hide-artist-index]").forEach((btn) => {
           btn.addEventListener("click", () => hideArtist(Number(btn.dataset.hideArtistIndex)));
         });
+        pairContent.querySelectorAll("[data-youtube-trigger]").forEach((triggerEl) => {
+          triggerEl.addEventListener("click", () => embedFirstYouTubeVideo(triggerEl));
+        });
         const skipBothBtn = pairContent.querySelector("[data-skip-both]");
         if (skipBothBtn) skipBothBtn.addEventListener("click", skipBothSongs);
 
         pairPanel.hidden = false;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function buildYouTubeSearchUrl(songTitle, artistName) {
+        const query = `${songTitle || ""} ${artistName || ""}`.trim();
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+      }
+
+      async function embedFirstYouTubeVideo(triggerEl) {
+        if (!triggerEl || triggerEl.dataset.youtubeEmbedded === "true" || triggerEl.dataset.youtubeLoading === "true") return;
+        const cardEl = triggerEl.closest(".album-media-shell");
+        const embedSlotEl = cardEl ? cardEl.querySelector("[data-youtube-embed-slot]") : null;
+        const embedStatusEl = cardEl ? cardEl.querySelector("[data-youtube-status]") : null;
+        if (!cardEl || !embedSlotEl || !embedStatusEl) return;
+
+        const title = triggerEl.dataset.songTitle || "";
+        const artist = triggerEl.dataset.songArtist || "";
+        const fallbackSearchUrl = buildYouTubeSearchUrl(title, artist);
+        triggerEl.dataset.youtubeLoading = "true";
+        embedStatusEl.textContent = "";
+        try {
+          const params = paramsFromObject({ title, artist });
+          const response = await fetch(`/api/youtube/first?${params}`);
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.video_id) {
+            const detailMessage = payload?.detail?.message || payload?.detail || "No playable video found.";
+            embedStatusEl.textContent = `${detailMessage} Try YouTube search instead.`;
+            console.error("[SongRanker][youtube] lookup_failed", { title, artist, fallbackSearchUrl, payload, status: response.status });
+            return;
+          }
+
+          embedSlotEl.innerHTML = `<iframe
+            class="album-embed-frame"
+            src="https://www.youtube.com/embed/${payload.video_id}?autoplay=1"
+            title="YouTube player for ${escapeHtml(title)} by ${escapeHtml(artist)}"
+            allowfullscreen
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            loading="lazy"
+          ></iframe>`;
+          triggerEl.classList.add("is-hidden");
+          triggerEl.dataset.youtubeEmbedded = "true";
+        } catch (error) {
+          embedStatusEl.textContent = "Unable to load YouTube video right now.";
+          console.error("[SongRanker][youtube] lookup_error", { title, artist, error: error?.message || String(error), fallbackSearchUrl });
+        } finally {
+          delete triggerEl.dataset.youtubeLoading;
+        }
       }
 
       function logRateEvent(eventName, details = {}) {

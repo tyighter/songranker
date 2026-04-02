@@ -5,12 +5,13 @@ import json
 import logging
 import math
 import random
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import quote, urlencode, urljoin
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -622,6 +623,40 @@ def _add_skipped_songs(db: Session, user_id: int, song_ids: list[int]) -> int:
     return len(song_ids_to_insert)
 
 
+def _extract_first_youtube_video_id(search_html: str) -> str | None:
+    patterns = [
+        r'"videoId":"([A-Za-z0-9_-]{11})"',
+        r"watch\?v=([A-Za-z0-9_-]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, search_html)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _fetch_first_youtube_video_id(title: str, artist: str) -> str | None:
+    query = f"{(title or '').strip()} {(artist or '').strip()}".strip()
+    if not query:
+        return None
+
+    search_url = f"https://www.youtube.com/results?search_query={quote(query)}"
+    request = Request(
+        search_url,
+        headers={
+            "Accept": "text/html",
+            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            ),
+        },
+    )
+    with urlopen(request, timeout=15) as response:
+        search_html = response.read().decode("utf-8", errors="ignore")
+    return _extract_first_youtube_video_id(search_html)
+
+
 @app.middleware("http")
 async def setup_guard(request: StarletteRequest, call_next):
     if request.url.path.startswith("/static") or request.url.path in {
@@ -978,6 +1013,29 @@ def plex_album_art(
         raise HTTPException(status_code=502, detail="Unable to fetch album art from Plex")
 
     return Response(content=payload, media_type=media_type)
+
+
+@app.get("/api/youtube/first")
+def get_first_youtube_video(
+    title: str = Query(default=""),
+    artist: str = Query(default=""),
+    _: User = Depends(_require_current_user),
+):
+    try:
+        video_id = _fetch_first_youtube_video_id(title=title, artist=artist)
+    except Exception:
+        logger.exception("YouTube first-video lookup failed | title=%s artist=%s", title, artist)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "youtube_fetch_failed", "message": "Unable to contact YouTube right now."},
+        )
+
+    if not video_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "video_not_found", "message": "No YouTube video found for the requested song."},
+        )
+    return {"video_id": video_id}
 
 
 @app.get("/api/rate/next", response_model=NextPairResponse)
