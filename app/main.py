@@ -1148,6 +1148,40 @@ def unskip_all(
     return {"unskipped": removed_count}
 
 
+@app.post("/api/rankings/reset/personal")
+def reset_personal_rankings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    deleted_votes = db.query(PairwiseVote).filter(PairwiseVote.user_id == current_user.id).delete(synchronize_session=False)
+    deleted_scores = db.query(RatingScore).filter(RatingScore.user_id == current_user.id).delete(synchronize_session=False)
+    deleted_skips = db.query(UserSkippedSong).filter(UserSkippedSong.user_id == current_user.id).delete(synchronize_session=False)
+    db.commit()
+    return {
+        "reset_scope": "personal",
+        "deleted_votes": deleted_votes,
+        "deleted_scores": deleted_scores,
+        "deleted_skips": deleted_skips,
+    }
+
+
+@app.post("/api/rankings/reset/global")
+def reset_global_rankings(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(_require_current_user),
+):
+    deleted_votes = db.query(PairwiseVote).delete(synchronize_session=False)
+    deleted_scores = db.query(RatingScore).delete(synchronize_session=False)
+    deleted_skips = db.query(UserSkippedSong).delete(synchronize_session=False)
+    db.commit()
+    return {
+        "reset_scope": "global",
+        "deleted_votes": deleted_votes,
+        "deleted_scores": deleted_scores,
+        "deleted_skips": deleted_skips,
+    }
+
+
 @app.get("/api/rankings", response_model=RankingsResponse)
 def get_rankings(
     artist: str | None = Query(default=None),

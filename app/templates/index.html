@@ -57,6 +57,7 @@
         <form method="post" action="/api/auth/signout">
           <button type="submit">Sign out</button>
         </form>
+        <button id="reset-personal-rankings-btn" type="button" class="secondary">Reset personal rankings</button>
       </div>
       <h3>Switch user</h3>
       <form method="post" action="/api/auth/switch-user">
@@ -162,6 +163,7 @@
         <button id="save-library-btn" type="submit">Apply library</button>
       </form>
       <button id="resync-btn" type="button">Manual Plex resync</button>
+      <button id="reset-global-rankings-btn" type="button" class="secondary">Reset global rankings</button>
       <p id="settings-status" class="status-info status-hidden" aria-live="polite"></p>
     </div>
   </div>
@@ -986,6 +988,19 @@
         statusEl.textContent = `Unskipped ${payload.unskipped || 0} song(s).`;
         await Promise.all([loadSkippedSongs(), loadNextPair()]);
       });
+      document.getElementById("reset-personal-rankings-btn").addEventListener("click", async () => {
+        const confirmed = window.confirm("This will permanently reset your personal rankings, scores, and skipped songs. Continue?");
+        if (!confirmed) return;
+        statusEl.textContent = "Resetting personal rankings...";
+        const response = await fetch("/api/rankings/reset/personal", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = payload.detail || "Unable to reset personal rankings.";
+          return;
+        }
+        statusEl.textContent = `Personal rankings reset. Removed ${payload.deleted_votes || 0} votes.`;
+        await Promise.all([loadRankings(), loadHistory(), loadSkippedSongs(), loadNextPair(), loadTopTenRankings()]);
+      });
       document.querySelectorAll(".sort-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const sortBy = btn.dataset.sort;
@@ -1037,6 +1052,19 @@
           return;
         }
         setStatusMessage(settingsStatusEl, `Resync complete. Imported ${body.imported}, updated ${body.updated}.`, "status-success");
+      });
+      document.getElementById("reset-global-rankings-btn").addEventListener("click", async () => {
+        const confirmed = window.confirm("This will permanently reset global rankings for all users. Continue?");
+        if (!confirmed) return;
+        setStatusMessage(settingsStatusEl, "Resetting global rankings...", "status-info");
+        const response = await fetch("/api/rankings/reset/global", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setStatusMessage(settingsStatusEl, payload.detail || "Unable to reset global rankings.", "status-error");
+          return;
+        }
+        setStatusMessage(settingsStatusEl, `Global rankings reset. Removed ${payload.deleted_votes || 0} votes.`, "status-success");
+        await Promise.all([loadRankings(), loadHistory(), loadSkippedSongs(), loadNextPair(), loadTopTenRankings()]);
       });
 
       plexCredentialsFormEl.addEventListener("submit", async (event) => {
