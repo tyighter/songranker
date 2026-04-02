@@ -376,9 +376,9 @@
         pairContent.innerHTML = payload.pair.map((song, index) => `
           <div class="song-card">
             <img class="album-art" src="${song.album_art_url || '/static/placeholder-album.svg'}" alt="Album art for ${song.title}" onerror="this.src='/static/placeholder-album.svg';" />
-            <h3>${song.title}</h3>
-            <p><strong>Artist:</strong> ${song.artist}</p>
-            <p><strong>Album:</strong> ${song.album || "Unknown"}</p>
+            <h3 class="song-title">${song.title}</h3>
+            <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
+            <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
             <button type="button" data-vote-index="${index}">Choose this song</button>
             <button type="button" data-skip-index="${index}" class="secondary">Skip this song</button>
           </div>
