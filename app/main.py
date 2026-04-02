@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session, aliased
 from starlette.requests import Request as StarletteRequest
 
@@ -1013,6 +1013,7 @@ def get_rankings(
     artist: str | None = Query(default=None),
     album: str | None = Query(default=None),
     decade: str | None = Query(default=None),
+    scope: str = Query(default="personal"),
     sort_by: str = Query(default="rank"),
     sort_dir: str = Query(default="asc"),
     page: int = Query(default=1, ge=1),
@@ -1028,29 +1029,58 @@ def get_rankings(
     if decade:
         filters["decade"] = decade
 
+    scope = (scope or "personal").lower()
+    if scope not in {"personal", "global"}:
+        raise HTTPException(status_code=400, detail="Invalid rankings scope; expected personal or global")
+
     songs = _apply_filters(db.query(Song), filters).order_by(Song.id.asc()).all()
     if not songs:
-        return RankingsResponse(filters=filters, sort_by=sort_by, sort_dir=sort_dir, total=0, rows=[])
+        return RankingsResponse(filters={**filters, "scope": scope}, sort_by=sort_by, sort_dir=sort_dir, total=0, rows=[])
 
     song_ids = [song.id for song in songs]
-    rating_rows = (
-        db.query(RatingScore)
-        .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id.in_(song_ids)))
-        .all()
-    )
-    rating_lookup = {row.song_id: row.score for row in rating_rows}
-    winner_counts = (
-        db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
-        .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.winner_song_id.in_(song_ids)))
-        .group_by(PairwiseVote.winner_song_id)
-        .all()
-    )
-    loser_counts = (
-        db.query(PairwiseVote.loser_song_id, func.count(PairwiseVote.id))
-        .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.loser_song_id.in_(song_ids)))
-        .group_by(PairwiseVote.loser_song_id)
-        .all()
-    )
+    if scope == "global":
+        rating_rows = (
+            db.query(
+                RatingScore.song_id,
+                func.round(func.avg(RatingScore.score)).label("avg_score"),
+            )
+            .filter(RatingScore.song_id.in_(song_ids))
+            .group_by(RatingScore.song_id)
+            .all()
+        )
+        winner_counts = (
+            db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
+            .filter(PairwiseVote.winner_song_id.in_(song_ids))
+            .group_by(PairwiseVote.winner_song_id)
+            .all()
+        )
+        loser_counts = (
+            db.query(PairwiseVote.loser_song_id, func.count(PairwiseVote.id))
+            .filter(PairwiseVote.loser_song_id.in_(song_ids))
+            .group_by(PairwiseVote.loser_song_id)
+            .all()
+        )
+        rating_lookup = {row.song_id: int(row.avg_score or DEFAULT_RATING) for row in rating_rows}
+    else:
+        rating_rows = (
+            db.query(RatingScore)
+            .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id.in_(song_ids)))
+            .all()
+        )
+        winner_counts = (
+            db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
+            .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.winner_song_id.in_(song_ids)))
+            .group_by(PairwiseVote.winner_song_id)
+            .all()
+        )
+        loser_counts = (
+            db.query(PairwiseVote.loser_song_id, func.count(PairwiseVote.id))
+            .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.loser_song_id.in_(song_ids)))
+            .group_by(PairwiseVote.loser_song_id)
+            .all()
+        )
+        rating_lookup = {row.song_id: row.score for row in rating_rows}
+
     vote_counts: dict[int, int] = {}
     for song_id, count in winner_counts:
         vote_counts[song_id] = vote_counts.get(song_id, 0) + count
@@ -1086,7 +1116,7 @@ def get_rankings(
     start = (page - 1) * page_size
     end = start + page_size
     return RankingsResponse(
-        filters=filters,
+        filters={**filters, "scope": scope},
         sort_by=sort_by,
         sort_dir="desc" if reverse else "asc",
         total=len(rows),
