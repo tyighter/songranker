@@ -92,6 +92,19 @@ class RatingScoreSnapshot(Base):
     )
 
 
+class UserSkippedSong(Base):
+    __tablename__ = "user_skipped_songs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    song_id: Mapped[int] = mapped_column(ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "song_id", name="uq_user_skipped_songs_user_song"),
+    )
+
+
 def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     """SQLite only auto-increments INTEGER PRIMARY KEY, not BIGINT."""
     if getattr(target, "id", None) is not None:
@@ -106,5 +119,5 @@ def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     target.id = secrets.randbits(63)
 
 
-for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot):
+for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot, UserSkippedSong):
     event.listen(model, "before_insert", _assign_bigint_pk_for_sqlite)

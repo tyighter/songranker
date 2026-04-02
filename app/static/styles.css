@@ -88,6 +88,12 @@ input, select {
   color: #1b2430;
 }
 
+input[type="checkbox"] {
+  width: auto;
+  max-width: none;
+  margin-top: 0;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -133,6 +139,10 @@ button.secondary {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
+}
+
+.pair-wide-actions {
+  grid-column: 1 / -1;
 }
 
 .song-card {

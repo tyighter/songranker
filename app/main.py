@@ -25,7 +25,16 @@ from starlette.requests import Request as StarletteRequest
 
 from app.config import settings
 from app.db import SessionLocal, get_db
-from app.models import AppSettings, PairwiseVote, RatingScore, RatingScoreSnapshot, Song, User, UserSession
+from app.models import (
+    AppSettings,
+    PairwiseVote,
+    RatingScore,
+    RatingScoreSnapshot,
+    Song,
+    User,
+    UserSession,
+    UserSkippedSong,
+)
 
 DEFAULT_RATING = 1000
 ELO_K = 24
@@ -90,6 +99,18 @@ class VoteRequest(BaseModel):
 class VoteResponse(BaseModel):
     winner: dict[str, Any]
     loser: dict[str, Any]
+
+
+class SkipSongsRequest(BaseModel):
+    song_ids: list[int] = Field(default_factory=list)
+
+
+class SkipArtistRequest(BaseModel):
+    artist: str
+
+
+class UnskipSelectedRequest(BaseModel):
+    song_ids: list[int] = Field(default_factory=list)
 
 
 class RankingsResponse(BaseModel):
@@ -493,7 +514,13 @@ def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) 
 
 def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
     started_at = datetime.now(timezone.utc)
+    skipped_song_ids = {
+        row.song_id
+        for row in db.query(UserSkippedSong.song_id).filter(UserSkippedSong.user_id == user_id).all()
+    }
     songs_query = _apply_filters(db.query(Song), filters)
+    if skipped_song_ids:
+        songs_query = songs_query.filter(~Song.id.in_(skipped_song_ids))
     candidates = songs_query.order_by(Song.id.asc()).all()
     song_rows = [(song.id, _song_selection_weight(song)) for song in candidates]
     song_ids = [song_id for song_id, _ in song_rows]
@@ -570,6 +597,23 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
         elapsed_ms,
     )
     return songs_by_id[selected_pair[0]], songs_by_id[selected_pair[1]]
+
+
+def _add_skipped_songs(db: Session, user_id: int, song_ids: list[int]) -> int:
+    normalized_song_ids = sorted(set(song_ids))
+    if not normalized_song_ids:
+        return 0
+
+    existing_song_ids = {
+        row.song_id
+        for row in db.query(UserSkippedSong.song_id)
+        .filter(and_(UserSkippedSong.user_id == user_id, UserSkippedSong.song_id.in_(normalized_song_ids)))
+        .all()
+    }
+    song_ids_to_insert = [song_id for song_id in normalized_song_ids if song_id not in existing_song_ids]
+    for song_id in song_ids_to_insert:
+        db.add(UserSkippedSong(user_id=user_id, song_id=song_id))
+    return len(song_ids_to_insert)
 
 
 @app.middleware("http")
@@ -1006,6 +1050,96 @@ def get_pool_options(
         rows = db.query(Song.album).filter(Song.album.isnot(None)).distinct().order_by(Song.album.asc()).all()
         return {"filter_by": filter_by, "options": [row[0] for row in rows if row[0]]}
     return {"filter_by": "none", "options": []}
+
+
+@app.get("/api/skips")
+def get_skipped_songs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    rows = (
+        db.query(UserSkippedSong, Song)
+        .join(Song, Song.id == UserSkippedSong.song_id)
+        .filter(UserSkippedSong.user_id == current_user.id)
+        .order_by(UserSkippedSong.created_at.desc(), UserSkippedSong.id.desc())
+        .all()
+    )
+    return {
+        "total": len(rows),
+        "rows": [
+            {
+                "song_id": song.id,
+                "title": song.title,
+                "artist": song.artist,
+                "album": song.album,
+                "year": song.year,
+                "skipped_at": skipped.created_at.isoformat(),
+            }
+            for skipped, song in rows
+        ],
+    }
+
+
+@app.post("/api/skips/songs")
+def skip_songs(
+    payload: SkipSongsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    song_ids = sorted(set(payload.song_ids))
+    if not song_ids:
+        raise HTTPException(status_code=400, detail="song_ids is required")
+    existing_song_count = db.query(func.count(Song.id)).filter(Song.id.in_(song_ids)).scalar() or 0
+    if existing_song_count != len(song_ids):
+        raise HTTPException(status_code=404, detail="One or more songs were not found")
+    inserted_count = _add_skipped_songs(db, current_user.id, song_ids)
+    db.commit()
+    return {"skipped": inserted_count, "requested": len(song_ids)}
+
+
+@app.post("/api/skips/artist")
+def skip_artist(
+    payload: SkipArtistRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    artist = payload.artist.strip()
+    if not artist:
+        raise HTTPException(status_code=400, detail="artist is required")
+    artist_song_ids = [song_id for (song_id,) in db.query(Song.id).filter(Song.artist == artist).all()]
+    if not artist_song_ids:
+        raise HTTPException(status_code=404, detail="No songs found for artist")
+    inserted_count = _add_skipped_songs(db, current_user.id, artist_song_ids)
+    db.commit()
+    return {"artist": artist, "skipped": inserted_count, "requested": len(artist_song_ids)}
+
+
+@app.post("/api/skips/unskip-selected")
+def unskip_selected(
+    payload: UnskipSelectedRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    song_ids = sorted(set(payload.song_ids))
+    if not song_ids:
+        raise HTTPException(status_code=400, detail="song_ids is required")
+    removed_count = (
+        db.query(UserSkippedSong)
+        .filter(and_(UserSkippedSong.user_id == current_user.id, UserSkippedSong.song_id.in_(song_ids)))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"unskipped": removed_count, "requested": len(song_ids)}
+
+
+@app.post("/api/skips/unskip-all")
+def unskip_all(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    removed_count = db.query(UserSkippedSong).filter(UserSkippedSong.user_id == current_user.id).delete()
+    db.commit()
+    return {"unskipped": removed_count}
 
 
 @app.get("/api/rankings", response_model=RankingsResponse)
