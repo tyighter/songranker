@@ -11,33 +11,40 @@
     <h1>SongRanker Setup Wizard</h1>
 
     {% if error %}
-    <p class="error">Plex lookup failed: {{ error }}</p>
+    <p class="status-error">Plex lookup failed: {{ error }}</p>
     {% endif %}
 
     <section class="panel">
       <h2>1) Create first local user</h2>
       <p>Existing users: {{ users_count }}</p>
-      <p class="warning">Local auth only (not secure yet).</p>
-      <form method="post" action="/api/setup/user">
+      <p class="warning">Your first account is stored locally on this server. Use a strong password and keep server/network access restricted.</p>
+      <form method="post" action="/api/setup/user" id="setup-user-form">
         <label>Username <input type="text" name="username" required /></label>
+        <p class="helper-text">Pick a simple username with letters, numbers, underscores, or dashes.</p>
         <label>Email <input type="email" name="email" required /></label>
+        <p class="helper-text">Use an address you control for future account recovery options.</p>
         <label>Password <input type="password" name="password" required minlength="6" /></label>
+        <p class="helper-text">Minimum 6 characters (longer is better).</p>
         <button type="submit">Create user</button>
+        <p id="setup-user-status" class="status-info status-hidden" aria-live="polite"></p>
       </form>
     </section>
 
     <section class="panel">
       <h2>2) Connect Plex</h2>
-      <form method="post" action="/api/setup/plex">
+      <form method="post" action="/api/setup/plex" id="setup-plex-form">
         <label>Plex URL <input type="url" name="plex_url" value="{{ settings.plex_url or '' }}" required /></label>
+        <p class="helper-text">Example: <code>http://192.168.1.15:32400</code> or <code>https://plex.example.com</code>.</p>
         <label>Plex Token <input type="password" name="plex_token" value="{{ settings.plex_token or '' }}" required /></label>
+        <p class="helper-text">Use your Plex API token from your Plex account settings.</p>
         <button type="submit">Save Plex connection</button>
+        <p id="setup-plex-status" class="status-info status-hidden" aria-live="polite"></p>
       </form>
     </section>
 
     <section class="panel">
       <h2>3) Select music library</h2>
-      <form method="post" action="/api/setup/library">
+      <form method="post" action="/api/setup/library" id="setup-library-form">
         <label>Library section
           <select name="plex_music_section_id" required>
             <option value="">Select one...</option>
@@ -46,7 +53,9 @@
             {% endfor %}
           </select>
         </label>
+        <p class="helper-text">Choose the Plex music section you want to rank from.</p>
         <button type="submit">Save library section</button>
+        <p id="setup-library-status" class="status-info status-hidden" aria-live="polite"></p>
       </form>
     </section>
 
@@ -54,22 +63,49 @@
       <h2>4) Initial import</h2>
       <p>This imports title, artist, album, year/decade, and Plex rating key into local cache.</p>
       <button id="run-import-btn">Run initial import + finish setup</button>
-      <p id="import-status"></p>
+      <p id="import-status" class="status-info import-status" data-state="starting" aria-live="polite">Ready to start import.</p>
     </section>
   </main>
 
   <script>
-    document.getElementById("run-import-btn").addEventListener("click", async () => {
+    function setInlineStatus(el, message, variant = "status-info") {
+      el.textContent = message;
+      el.className = `${variant}`;
+    }
+
+    function showSubmitting(formId, statusId, message) {
+      const form = document.getElementById(formId);
+      const status = document.getElementById(statusId);
+      form.addEventListener("submit", () => {
+        setInlineStatus(status, message, "status-info");
+      });
+    }
+
+    showSubmitting("setup-user-form", "setup-user-status", "Creating your local user...");
+    showSubmitting("setup-plex-form", "setup-plex-status", "Saving Plex connection...");
+    showSubmitting("setup-library-form", "setup-library-status", "Saving library selection...");
+
+    function setImportState(state, message) {
       const status = document.getElementById("import-status");
-      status.textContent = "Importing tracks from Plex...";
+      const importBtn = document.getElementById("run-import-btn");
+      status.dataset.state = state;
+      if (state === "done") setInlineStatus(status, message, "status-success import-status");
+      else if (state === "failed") setInlineStatus(status, message, "status-error import-status");
+      else setInlineStatus(status, message, "status-info import-status");
+      importBtn.disabled = state === "importing";
+    }
+
+    document.getElementById("run-import-btn").addEventListener("click", async () => {
+      setImportState("starting", "Starting import...");
+      setImportState("importing", "Importing tracks from Plex. This can take a minute.");
       const response = await fetch("/api/setup/import", { method: "POST" });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        status.textContent = body.detail || "Import failed";
+        setImportState("failed", body.detail || "Import failed.");
         return;
       }
       const payload = await response.json();
-      status.textContent = `Imported ${payload.imported}, updated ${payload.updated}. Redirecting...`;
+      setImportState("done", `Import complete. Imported ${payload.imported}, updated ${payload.updated}. Redirecting...`);
       window.location.href = "/";
     });
   </script>

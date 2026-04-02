@@ -9,27 +9,63 @@
 <body>
   <main>
     <h1>SongRanker Sign In</h1>
-    <p class="warning">{{ notice }}</p>
+    {% if notice %}
+    <p class="status-info" id="signin-global-notice">{{ notice }}</p>
+    {% endif %}
 
     <section class="panel">
       <h2>Sign in</h2>
-      <form method="post" action="/api/auth/signin">
+      <form method="post" action="/api/auth/signin" id="signin-form">
         <label>Username <input type="text" name="username" required /></label>
+        <p class="helper-text">Use the username you created (letters, numbers, underscore, or dash).</p>
         <label>Password <input type="password" name="password" required /></label>
+        <p class="helper-text">Passwords are case-sensitive.</p>
         <button type="submit">Sign in</button>
+        <p id="signin-status" class="status-info status-hidden" aria-live="polite"></p>
       </form>
     </section>
 
     <section class="panel">
       <h2>Create user</h2>
-      <form method="post" action="/api/auth/create-user">
+      <form method="post" action="/api/auth/create-user" id="create-user-form">
         <label>Username <input type="text" name="username" required /></label>
+        <p class="helper-text">3+ characters; letters, numbers, underscore, and dash are safest.</p>
         <label>Email <input type="email" name="email" required /></label>
+        <p class="helper-text">Used for account recovery and notifications later.</p>
         <label>Password <input type="password" name="password" required minlength="6" /></label>
+        <p class="helper-text">Minimum 6 characters.</p>
         <button type="submit">Create user</button>
+        <p id="create-user-status" class="status-info status-hidden" aria-live="polite"></p>
       </form>
     </section>
 
   </main>
+  <script>
+    function setInlineStatus(el, message, variant = "status-info") {
+      el.textContent = message;
+      el.className = `${variant}`;
+    }
+
+    function showSubmitting(formId, statusId, message) {
+      const form = document.getElementById(formId);
+      const status = document.getElementById(statusId);
+      form.addEventListener("submit", () => {
+        setInlineStatus(status, message, "status-info");
+      });
+    }
+
+    showSubmitting("signin-form", "signin-status", "Signing in...");
+    showSubmitting("create-user-form", "create-user-status", "Creating user...");
+
+    const globalNotice = document.getElementById("signin-global-notice");
+    if (globalNotice) {
+      const notice = globalNotice.textContent || "";
+      const looksLikeError = /error|invalid|failed|unable|missing/i.test(notice);
+      const targetStatus = looksLikeError
+        ? document.getElementById("signin-status")
+        : document.getElementById("create-user-status");
+      if (targetStatus) setInlineStatus(targetStatus, notice, looksLikeError ? "status-error" : "status-success");
+    }
+  </script>
 </body>
 </html>
