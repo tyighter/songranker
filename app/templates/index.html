@@ -38,7 +38,7 @@
     </section>
     {% endif %}
 
-    {% if is_authenticated %}
+    {% if is_authenticated and show_onboarding_helper %}
     <section class="panel onboarding-panel" id="primary-action-panel">
       <p class="onboarding-progress"><strong>Step 1:</strong> set filters (optional) → <strong>Step 2:</strong> start ranking</p>
       <div class="onboarding-actions">
@@ -47,7 +47,9 @@
       </div>
       <p class="helper-text onboarding-helper">You’ll get your next song matchup right away. Use filters first if you want to narrow by decade, artist, or album.</p>
     </section>
+    {% endif %}
 
+    {% if is_authenticated %}
     <section class="panel" id="pair-panel" hidden>
       <h2>Pick your winner</h2>
       <div id="pair-content"></div>
@@ -533,6 +535,7 @@
       const openUserModalBtn = document.getElementById("open-user-modal");
       const openRankingsModalBtn = document.getElementById("open-rankings-modal");
       const openSettingsModalBtn = document.getElementById("open-settings-modal");
+      const primaryActionPanel = document.getElementById("primary-action-panel");
       const startRankingNowBtn = document.getElementById("start-ranking-now");
       const quickOpenFiltersBtn = document.getElementById("quick-open-filters");
       const filtersFormEl = document.getElementById("filters-form");
@@ -626,7 +629,14 @@
         openModal("user-modal");
       });
       if (quickOpenFiltersBtn) {
-        quickOpenFiltersBtn.addEventListener("click", () => openModal("filters-modal"));
+        quickOpenFiltersBtn.addEventListener("click", () => {
+          dismissOnboardingPanel();
+          openModal("filters-modal");
+        });
+      }
+
+      function dismissOnboardingPanel() {
+        if (primaryActionPanel) primaryActionPanel.hidden = true;
       }
 
       function renderPlexLibraries(libraries, selectedSectionId) {
@@ -875,7 +885,10 @@
       }
 
       if (startRankingNowBtn) {
-        startRankingNowBtn.addEventListener("click", loadNextPair);
+        startRankingNowBtn.addEventListener("click", () => {
+          dismissOnboardingPanel();
+          loadNextPair();
+        });
       }
 
       async function submitVote(winnerIndex) {

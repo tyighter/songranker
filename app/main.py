@@ -727,8 +727,17 @@ def signin_page(request: StarletteRequest, db: Session = Depends(get_db)):
 def index(request: StarletteRequest, db: Session = Depends(get_db)):
     session = _current_session(db, request)
     current_user = None
+    show_onboarding_helper = False
     if session is not None:
         current_user = db.query(User).filter(User.id == session.user_id).first()
+    if current_user is not None:
+        has_pairwise_votes = (
+            db.query(PairwiseVote.id).filter(PairwiseVote.user_id == current_user.id).first() is not None
+        )
+        has_rating_scores = (
+            db.query(RatingScore.id).filter(RatingScore.user_id == current_user.id).first() is not None
+        )
+        show_onboarding_helper = not (has_pairwise_votes or has_rating_scores)
     users = db.query(User).order_by(User.username.asc()).all()
 
     return templates.TemplateResponse(
@@ -739,6 +748,7 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             "app_port": settings.app_port,
             "current_user": current_user,
             "is_authenticated": current_user is not None,
+            "show_onboarding_helper": show_onboarding_helper,
             "users": users,
             "notice": "Auth is intentionally lightweight and not secure yet.",
         },
