@@ -87,35 +87,39 @@
       <div class="inline-forms">
         <button id="load-history" type="button">Load history</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Winner</th>
-            <th>Loser</th>
-            <th>Timestamp</th>
-            <th>Context</th>
-          </tr>
-        </thead>
-        <tbody id="history-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Winner</th>
+              <th>Loser</th>
+              <th>Timestamp</th>
+              <th class="hide-sm">Context</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
 
       <h3>Ranked List</h3>
       <div class="inline-forms">
         <button id="load-rankings" type="button">Refresh rankings</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th><button type="button" class="sort-btn" data-sort="rank">Rank</button></th>
-            <th><button type="button" class="sort-btn" data-sort="score">Score</button></th>
-            <th><button type="button" class="sort-btn" data-sort="artist">Artist</button></th>
-            <th><button type="button" class="sort-btn" data-sort="album">Album</button></th>
-            <th><button type="button" class="sort-btn" data-sort="year">Year</button></th>
-            <th>Title</th>
-          </tr>
-        </thead>
-        <tbody id="rankings-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><button type="button" class="sort-btn" data-sort="rank">Rank</button></th>
+              <th><button type="button" class="sort-btn" data-sort="score">Score</button></th>
+              <th><button type="button" class="sort-btn" data-sort="artist">Artist</button></th>
+              <th class="hide-sm"><button type="button" class="sort-btn" data-sort="album">Album</button></th>
+              <th class="hide-sm"><button type="button" class="sort-btn" data-sort="year">Year</button></th>
+              <th>Title</th>
+            </tr>
+          </thead>
+          <tbody id="rankings-body"></tbody>
+        </table>
+      </div>
 
       <h3>Skipped Songs</h3>
       <div class="inline-forms">
@@ -123,19 +127,21 @@
         <button id="unskip-selected" type="button" class="secondary">Unskip selected</button>
         <button id="unskip-all" type="button" class="secondary">Unskip all</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Select</th>
-            <th>Artist</th>
-            <th>Album</th>
-            <th>Year</th>
-            <th>Title</th>
-            <th>Skipped At</th>
-          </tr>
-        </thead>
-        <tbody id="skipped-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Select</th>
+              <th>Artist</th>
+              <th>Album</th>
+              <th>Year</th>
+              <th>Title</th>
+              <th>Skipped At</th>
+            </tr>
+          </thead>
+          <tbody id="skipped-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -235,34 +241,38 @@
         </div>
       </form>
       <h3>Personal top ten</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Score</th>
-            <th>Artist</th>
-            <th>Album</th>
-            <th>Year</th>
-            <th>Title</th>
-          </tr>
-        </thead>
-        <tbody id="personal-top-ten-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Score</th>
+              <th>Artist</th>
+              <th class="hide-sm">Album</th>
+              <th class="hide-sm">Year</th>
+              <th>Title</th>
+            </tr>
+          </thead>
+          <tbody id="personal-top-ten-body"></tbody>
+        </table>
+      </div>
 
       <h3>Global top ten</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Score</th>
-            <th>Artist</th>
-            <th>Album</th>
-            <th>Year</th>
-            <th>Title</th>
-          </tr>
-        </thead>
-        <tbody id="global-top-ten-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Score</th>
+              <th>Artist</th>
+              <th class="hide-sm">Album</th>
+              <th class="hide-sm">Year</th>
+              <th>Title</th>
+            </tr>
+          </thead>
+          <tbody id="global-top-ten-body"></tbody>
+        </table>
+      </div>
       <p id="rankings-modal-status"></p>
     </div>
   </div>
@@ -823,8 +833,8 @@
               <td>${row.rank}</td>
               <td>${row.score}</td>
               <td>${row.artist}</td>
-              <td>${row.album || ""}</td>
-              <td>${row.year || ""}</td>
+              <td class="hide-sm">${row.album || ""}</td>
+              <td class="hide-sm">${row.year || ""}</td>
               <td>${row.title}</td>
             </tr>
           `).join("");
@@ -841,8 +851,8 @@
             <td>${row.rank}</td>
             <td>${row.score}</td>
             <td>${row.artist}</td>
-            <td>${row.album || ""}</td>
-            <td>${row.year || ""}</td>
+            <td class="hide-sm">${row.album || ""}</td>
+            <td class="hide-sm">${row.year || ""}</td>
             <td>${row.title}</td>
           </tr>
         `).join("");
@@ -918,7 +928,7 @@
               <td>${row.winner.title} — ${row.winner.artist}</td>
               <td>${row.loser.title} — ${row.loser.artist}</td>
               <td>${new Date(row.timestamp).toLocaleString()}</td>
-              <td><code>${JSON.stringify(row.context)}</code></td>
+              <td class="hide-sm"><code>${JSON.stringify(row.context)}</code></td>
             </tr>
           `).join("");
           statusEl.textContent = "History loaded.";
