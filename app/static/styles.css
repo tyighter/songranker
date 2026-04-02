@@ -374,6 +374,23 @@ button:active {
   padding: 0.5rem 0.7rem;
 }
 
+.warning-dismissible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.warning-dismissible p {
+  margin: 0;
+}
+
+.warning-dismiss-btn {
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  border-color: #e0b77d;
+}
+
 .helper-text {
   margin: 0.1rem 0 0.55rem;
   color: #5a6878;
