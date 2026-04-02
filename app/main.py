@@ -814,7 +814,14 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
 
     if cached := _get_cached_youtube_lookup(title, artist):
         _log_youtube_lookup("cache_hit", title=title, artist=artist, result=cached.get("result"), source=cached.get("source"))
-        return cached
+        if cached.get("result") == "ok":
+            return cached
+        if cached.get("result") == "error":
+            raise YouTubeLookupError(
+                code=str(cached.get("code") or "video_not_found"),
+                message=str(cached.get("message") or "No YouTube video found for the requested song."),
+                source=str(cached.get("source") or "cache"),
+            )
 
     providers = _make_youtube_provider_chain()
     last_network_error: YouTubeLookupError | None = None
