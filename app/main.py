@@ -29,6 +29,7 @@ from app.models import AppSettings, PairwiseVote, RatingScore, RatingScoreSnapsh
 
 DEFAULT_RATING = 1000
 ELO_K = 24
+RANKING_VOTE_WEIGHT = 10
 SESSION_COOKIE_NAME = "songranker_session"
 SESSION_TTL_DAYS = 30
 LOG_FILE_PATH = Path("/log.log")
@@ -351,6 +352,12 @@ def _normalize_pair(song_a: int, song_b: int) -> tuple[int, int]:
 
 def _expected_score(rating_a: int, rating_b: int) -> float:
     return 1.0 / (1.0 + math.pow(10, (rating_b - rating_a) / 400.0))
+
+
+def _ranking_score_with_vote_weight(score: int, vote_count: int) -> int:
+    confidence = vote_count / (vote_count + RANKING_VOTE_WEIGHT)
+    weighted_score = DEFAULT_RATING + ((score - DEFAULT_RATING) * confidence)
+    return round(weighted_score)
 
 
 def _apply_filters(query, filters: dict[str, Any]):
@@ -912,7 +919,32 @@ def get_rankings(
         .all()
     )
     rating_lookup = {row.song_id: row.score for row in rating_rows}
-    rows = [_serialize_song(song, rating_lookup.get(song.id, DEFAULT_RATING)) for song in songs]
+    winner_counts = (
+        db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
+        .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.winner_song_id.in_(song_ids)))
+        .group_by(PairwiseVote.winner_song_id)
+        .all()
+    )
+    loser_counts = (
+        db.query(PairwiseVote.loser_song_id, func.count(PairwiseVote.id))
+        .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.loser_song_id.in_(song_ids)))
+        .group_by(PairwiseVote.loser_song_id)
+        .all()
+    )
+    vote_counts: dict[int, int] = {}
+    for song_id, count in winner_counts:
+        vote_counts[song_id] = vote_counts.get(song_id, 0) + count
+    for song_id, count in loser_counts:
+        vote_counts[song_id] = vote_counts.get(song_id, 0) + count
+
+    rows = []
+    for song in songs:
+        raw_score = rating_lookup.get(song.id, DEFAULT_RATING)
+        vote_count = vote_counts.get(song.id, 0)
+        row = _serialize_song(song, _ranking_score_with_vote_weight(raw_score, vote_count))
+        row["vote_count"] = vote_count
+        row["raw_score"] = raw_score
+        rows.append(row)
 
     rows.sort(key=lambda row: (-row["score"], row["artist"], row["title"], row["song_id"]))
     for index, row in enumerate(rows, start=1):
