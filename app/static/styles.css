@@ -152,6 +152,52 @@ button.secondary {
   color: #2a4d93;
 }
 
+.btn-primary {
+  width: 100%;
+  padding: 0.75rem 1.15rem;
+  margin-top: 0;
+  margin-right: 0;
+  border-color: #1552c4;
+  background: #1d5fd8;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.btn-primary:hover {
+  background: #174ea8;
+  border-color: #133f89;
+}
+
+.btn-primary:focus-visible {
+  outline: 3px solid #8ab4ff;
+  outline-offset: 2px;
+}
+
+.btn-secondary-subtle,
+.btn-tertiary {
+  width: 100%;
+  margin-top: 0;
+  margin-right: 0;
+  padding: 0.5rem 0.8rem;
+  border-color: #d7dee8;
+  background: #f7f9fc;
+  color: #46576b;
+  font-weight: 600;
+}
+
+.btn-secondary-subtle:hover,
+.btn-tertiary:hover {
+  background: #edf2f8;
+  border-color: #c6d0de;
+  color: #304255;
+}
+
+.btn-secondary-subtle:focus-visible,
+.btn-tertiary:focus-visible {
+  outline: 3px solid #b9c8db;
+  outline-offset: 2px;
+}
+
 #pair-content {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -167,6 +213,13 @@ button.secondary {
   border-radius: 14px;
   padding: 0.8rem;
   background: #f8fafd;
+}
+
+.song-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
 }
 
 .album-art {
@@ -290,5 +343,9 @@ body.modal-open {
 
   .song-title {
     font-size: 1.25rem;
+  }
+
+  .song-card-actions {
+    gap: 0.4rem;
   }
 }
