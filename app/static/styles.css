@@ -98,13 +98,31 @@ table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 0.75rem;
+  line-height: 1.5;
 }
 
 th, td {
   border: 1px solid #e5e9f0;
-  padding: 0.5rem;
+  padding: 0.65rem 0.7rem;
   text-align: left;
   vertical-align: top;
+}
+
+tbody tr:nth-child(even) {
+  background: #f4f8ff;
+}
+
+tbody tr:hover {
+  background: #e9f1ff;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-wrap table {
+  min-width: 640px;
 }
 
 .table-state {
@@ -313,6 +331,13 @@ button.secondary {
   position: relative;
 }
 
+.modal .table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafd;
+}
+
 .filter-modal-form {
   display: flex;
   flex-direction: column;
@@ -356,5 +381,9 @@ body.modal-open {
 
   .song-card-actions {
     gap: 0.4rem;
+  }
+
+  .hide-sm {
+    display: none;
   }
 }
