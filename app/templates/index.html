@@ -62,91 +62,127 @@
       <button type="button" class="modal-close btn-ghost" data-close-modal="user-modal" aria-label="Close user dialog">×</button>
       <h2 id="user-modal-title">User info</h2>
       <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
-      <div class="inline-forms">
-        <form method="post" action="/api/auth/signout">
-          <button type="submit" class="btn-secondary">Sign out</button>
-        </form>
-        <button id="reset-personal-rankings-btn" type="button" class="btn-danger">Reset personal rankings</button>
-      </div>
-      <h3>Switch user</h3>
-      <form method="post" action="/api/auth/switch-user">
-        <label>User
-          <select name="user_id" required>
-            {% for user in users %}
-            <option value="{{ user.id }}" {% if user.id == current_user.id %}selected{% endif %}>{{ user.username }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>Password <input type="password" name="password" required /></label>
-        <button type="submit" class="btn-primary">Switch user</button>
-      </form>
+      <nav class="user-modal-nav" aria-label="User info sections">
+        <a href="#user-section-profile">Profile</a>
+        <a href="#user-section-history">History</a>
+        <a href="#user-section-rankings">Rankings</a>
+        <a href="#user-section-skips">Skipped songs</a>
+      </nav>
 
-      <h3>My Ratings / History</h3>
-      <div class="grid-4">
-        <label>Artist <input type="text" id="history-artist" placeholder="optional artist" /></label>
-        <label>Album <input type="text" id="history-album" placeholder="optional album" /></label>
-        <label>Decade <input type="text" id="history-decade" placeholder="e.g. 2010s" /></label>
-        <label>Date from <input type="date" id="history-date-from" /></label>
-        <label>Date to <input type="date" id="history-date-to" /></label>
-      </div>
-      <div class="inline-forms">
-        <button id="load-history" type="button" class="btn-secondary">Load history</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Winner</th>
-              <th>Loser</th>
-              <th>Timestamp</th>
-              <th class="hide-sm">Context</th>
-            </tr>
-          </thead>
-          <tbody id="history-body"></tbody>
-        </table>
-      </div>
+      <section id="user-section-profile" class="user-modal-section" aria-labelledby="user-section-profile-heading">
+        <details open>
+          <summary id="user-section-profile-heading">Profile</summary>
+          <div class="user-modal-section-body">
+            <p class="section-task-hint">Account actions and user switching.</p>
+            <div class="inline-forms">
+              <form method="post" action="/api/auth/signout">
+                <button type="submit" class="btn-secondary">Sign out</button>
+              </form>
+              <button id="reset-personal-rankings-btn" type="button" class="btn-danger">Reset personal rankings</button>
+            </div>
+            <h3>Switch user</h3>
+            <form method="post" action="/api/auth/switch-user">
+              <label>User
+                <select name="user_id" required>
+                  {% for user in users %}
+                  <option value="{{ user.id }}" {% if user.id == current_user.id %}selected{% endif %}>{{ user.username }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Password <input type="password" name="password" required /></label>
+              <button type="submit" class="btn-primary">Switch user</button>
+            </form>
+          </div>
+        </details>
+      </section>
 
-      <h3>Ranked List</h3>
-      <div class="inline-forms">
-        <button id="load-rankings" type="button" class="btn-secondary">Refresh rankings</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th><button type="button" class="sort-btn btn-ghost" data-sort="rank">Rank</button></th>
-              <th><button type="button" class="sort-btn btn-ghost" data-sort="score">Score</button></th>
-              <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist</button></th>
-              <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="album">Album</button></th>
-              <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="year">Year</button></th>
-              <th>Title</th>
-            </tr>
-          </thead>
-          <tbody id="rankings-body"></tbody>
-        </table>
-      </div>
+      <section id="user-section-history" class="user-modal-section" aria-labelledby="user-section-history-heading">
+        <details>
+          <summary id="user-section-history-heading">History</summary>
+          <div class="user-modal-section-body">
+            <p class="section-task-hint">Filter and load your past rating decisions.</p>
+            <div class="grid-4">
+              <label>Artist <input type="text" id="history-artist" placeholder="optional artist" /></label>
+              <label>Album <input type="text" id="history-album" placeholder="optional album" /></label>
+              <label>Decade <input type="text" id="history-decade" placeholder="e.g. 2010s" /></label>
+              <label>Date from <input type="date" id="history-date-from" /></label>
+              <label>Date to <input type="date" id="history-date-to" /></label>
+            </div>
+            <div class="inline-forms">
+              <button id="load-history" type="button" class="btn-secondary">Load history</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Winner</th>
+                    <th>Loser</th>
+                    <th>Timestamp</th>
+                    <th class="hide-sm">Context</th>
+                  </tr>
+                </thead>
+                <tbody id="history-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
 
-      <h3>Skipped Songs</h3>
-      <div class="inline-forms">
-        <button id="load-skips" type="button" class="btn-secondary">Refresh skipped songs</button>
-        <button id="unskip-selected" type="button" class="btn-ghost">Unskip selected</button>
-        <button id="unskip-all" type="button" class="btn-ghost">Unskip all</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Select</th>
-              <th>Artist</th>
-              <th>Album</th>
-              <th>Year</th>
-              <th>Title</th>
-              <th>Skipped At</th>
-            </tr>
-          </thead>
-          <tbody id="skipped-body"></tbody>
-        </table>
-      </div>
+      <section id="user-section-rankings" class="user-modal-section" aria-labelledby="user-section-rankings-heading">
+        <details>
+          <summary id="user-section-rankings-heading">Rankings</summary>
+          <div class="user-modal-section-body">
+            <p class="section-task-hint">Refresh and sort your ranked songs.</p>
+            <div class="inline-forms">
+              <button id="load-rankings" type="button" class="btn-secondary">Refresh rankings</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="rank">Rank</button></th>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="score">Score</button></th>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist</button></th>
+                    <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="album">Album</button></th>
+                    <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="year">Year</button></th>
+                    <th>Title</th>
+                  </tr>
+                </thead>
+                <tbody id="rankings-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section id="user-section-skips" class="user-modal-section" aria-labelledby="user-section-skips-heading">
+        <details>
+          <summary id="user-section-skips-heading">Skipped songs</summary>
+          <div class="user-modal-section-body">
+            <p class="section-task-hint">Review skipped songs and restore them.</p>
+            <div class="inline-forms">
+              <button id="load-skips" type="button" class="btn-secondary">Refresh skipped songs</button>
+              <button id="unskip-selected" type="button" class="btn-ghost">Unskip selected</button>
+              <button id="unskip-all" type="button" class="btn-ghost">Unskip all</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>Artist</th>
+                    <th>Album</th>
+                    <th>Year</th>
+                    <th>Title</th>
+                    <th>Skipped At</th>
+                  </tr>
+                </thead>
+                <tbody id="skipped-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
     </div>
   </div>
 
