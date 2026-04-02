@@ -1,6 +1,6 @@
 import secrets
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, event, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -36,6 +36,8 @@ class Song(Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     decade: Mapped[str | None] = mapped_column(String(16), nullable=True)
     plex_rating_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    plex_user_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    plex_rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

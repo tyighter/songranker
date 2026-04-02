@@ -30,6 +30,11 @@ from app.models import AppSettings, PairwiseVote, RatingScore, RatingScoreSnapsh
 DEFAULT_RATING = 1000
 ELO_K = 24
 RANKING_VOTE_WEIGHT = 10
+POPULARITY_MAX_BOOST = 0.35
+POPULARITY_RATING_COUNT_CAP = 500
+POPULARITY_USER_RATING_MAX = 10.0
+POPULARITY_COUNT_WEIGHT = 0.6
+POPULARITY_USER_RATING_WEIGHT = 0.4
 SESSION_COOKIE_NAME = "songranker_session"
 SESSION_TTL_DAYS = 30
 LOG_FILE_PATH = Path("/log.log")
@@ -255,6 +260,8 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
             year_raw = track.attrib.get("year")
             year = int(year_raw) if year_raw and year_raw.isdigit() else None
             source_uri = track.attrib.get("key")
+            plex_user_rating = _parse_plex_user_rating(track.attrib.get("userRating"))
+            plex_rating_count = _parse_plex_rating_count(track.attrib.get("ratingCount"))
 
             existing = db.query(Song).filter(Song.plex_rating_key == rating_key).first()
             if existing:
@@ -264,6 +271,8 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
                 existing.year = year
                 existing.decade = _decade_for_year(year)
                 existing.source_uri = source_uri
+                existing.plex_user_rating = plex_user_rating
+                existing.plex_rating_count = plex_rating_count
                 existing.updated_at = datetime.now(timezone.utc)
                 updated += 1
             else:
@@ -275,6 +284,8 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
                         year=year,
                         decade=_decade_for_year(year),
                         plex_rating_key=rating_key,
+                        plex_user_rating=plex_user_rating,
+                        plex_rating_count=plex_rating_count,
                         source_uri=source_uri,
                         updated_at=datetime.now(timezone.utc),
                     )
@@ -350,6 +361,61 @@ def _normalize_pair(song_a: int, song_b: int) -> tuple[int, int]:
     return (song_a, song_b) if song_a < song_b else (song_b, song_a)
 
 
+def _parse_plex_user_rating(raw_value: str | None) -> float | None:
+    if raw_value is None:
+        return None
+    try:
+        parsed = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _parse_plex_rating_count(raw_value: str | None) -> int | None:
+    if raw_value is None:
+        return None
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _song_selection_weight(song: Song) -> float:
+    rating_count = song.plex_rating_count
+    user_rating = song.plex_user_rating
+
+    count_component = 0.0
+    if rating_count is not None:
+        normalized_count = min(rating_count, POPULARITY_RATING_COUNT_CAP) / POPULARITY_RATING_COUNT_CAP
+        count_component = max(0.0, min(1.0, normalized_count))
+
+    rating_component = 0.0
+    if user_rating is not None and POPULARITY_USER_RATING_MAX > 0:
+        normalized_rating = user_rating / POPULARITY_USER_RATING_MAX
+        rating_component = max(0.0, min(1.0, normalized_rating))
+
+    blended_signal = (count_component * POPULARITY_COUNT_WEIGHT) + (rating_component * POPULARITY_USER_RATING_WEIGHT)
+    return max(0.0001, 1.0 + (POPULARITY_MAX_BOOST * blended_signal))
+
+
+def _weighted_song_choice(
+    song_rows: list[tuple[int, float]],
+    excluded_song_ids: set[int] | None = None,
+) -> int | None:
+    excluded_song_ids = excluded_song_ids or set()
+    available_rows = [(song_id, weight) for song_id, weight in song_rows if song_id not in excluded_song_ids]
+    if not available_rows:
+        return None
+    song_ids = [song_id for song_id, _ in available_rows]
+    weights = [weight for _, weight in available_rows]
+    return random.choices(song_ids, weights=weights, k=1)[0]
+
+
 def _expected_score(rating_a: int, rating_b: int) -> float:
     return 1.0 / (1.0 + math.pow(10, (rating_b - rating_a) / 400.0))
 
@@ -397,13 +463,18 @@ def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) 
     if app_settings.plex_url and app_settings.plex_token and song.plex_rating_key:
         album_art_url = f"/api/plex/album-art/{song.plex_rating_key}"
     payload["album_art_url"] = album_art_url
+    payload["plex_user_rating"] = song.plex_user_rating
+    payload["plex_rating_count"] = song.plex_rating_count
+    payload["selection_weight"] = _song_selection_weight(song)
     return payload
 
 
 def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
     started_at = datetime.now(timezone.utc)
-    songs_query = _apply_filters(db.query(Song.id), filters)
-    song_ids = [row[0] for row in songs_query.order_by(Song.id.asc()).all()]
+    songs_query = _apply_filters(db.query(Song), filters)
+    candidates = songs_query.order_by(Song.id.asc()).all()
+    song_rows = [(song.id, _song_selection_weight(song)) for song in candidates]
+    song_ids = [song_id for song_id, _ in song_rows]
 
     if len(song_ids) < 2:
         elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
@@ -427,7 +498,12 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
     selected_pair: tuple[int, int] | None = None
     max_attempts = min(50, len(song_ids) * 2)
     for _ in range(max_attempts):
-        song_a_id, song_b_id = random.sample(song_ids, 2)
+        song_a_id = _weighted_song_choice(song_rows)
+        if song_a_id is None:
+            break
+        song_b_id = _weighted_song_choice(song_rows, excluded_song_ids={song_a_id})
+        if song_b_id is None:
+            break
         candidate = _normalize_pair(song_a_id, song_b_id)
         if candidate == last_pair:
             continue
@@ -456,12 +532,19 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
         return None
 
     elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+    weight_by_song_id = dict(song_rows)
+    selected_weights = {
+        selected_pair[0]: weight_by_song_id.get(selected_pair[0]),
+        selected_pair[1]: weight_by_song_id.get(selected_pair[1]),
+    }
     logger.info(
-        "Pair selected from random filtered pool | user_id=%s filters=%s song_count=%s pair=%s elapsed_ms=%s",
+        "Pair selected from weighted filtered pool | user_id=%s filters=%s song_count=%s pair=%s pair_weights=%s popularity_max_boost=%s elapsed_ms=%s",
         user_id,
         filters,
         len(song_ids),
         [selected_pair[0], selected_pair[1]],
+        selected_weights,
+        POPULARITY_MAX_BOOST,
         elapsed_ms,
     )
     return songs_by_id[selected_pair[0]], songs_by_id[selected_pair[1]]
