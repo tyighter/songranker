@@ -116,6 +116,26 @@
         </thead>
         <tbody id="rankings-body"></tbody>
       </table>
+
+      <h3>Skipped Songs</h3>
+      <div class="inline-forms">
+        <button id="load-skips" type="button">Refresh skipped songs</button>
+        <button id="unskip-selected" type="button" class="secondary">Unskip selected</button>
+        <button id="unskip-all" type="button" class="secondary">Unskip all</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Artist</th>
+            <th>Album</th>
+            <th>Year</th>
+            <th>Title</th>
+            <th>Skipped At</th>
+          </tr>
+        </thead>
+        <tbody id="skipped-body"></tbody>
+      </table>
     </div>
   </div>
 
@@ -378,6 +398,7 @@
       const rankingsModalStatusEl = document.getElementById("rankings-modal-status");
       const personalTopTenBodyEl = document.getElementById("personal-top-ten-body");
       const globalTopTenBodyEl = document.getElementById("global-top-ten-body");
+      const skippedBodyEl = document.getElementById("skipped-body");
 
       let currentPair = null;
       let currentFilters = {};
@@ -503,9 +524,15 @@
             <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
             <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
             <button type="button" data-vote-index="${index}">Choose this song</button>
-            <button type="button" data-skip-index="${index}" class="secondary">Skip this song</button>
+            <button type="button" data-skip-index="${index}" class="secondary">Skip song</button>
+            <button type="button" data-hide-artist-index="${index}" class="secondary">Hide artist</button>
           </div>
         `).join("");
+        pairContent.insertAdjacentHTML("beforeend", `
+          <div class="pair-wide-actions">
+            <button type="button" data-skip-both class="secondary">Skip Both</button>
+          </div>
+        `);
 
         pairContent.querySelectorAll("[data-vote-index]").forEach((btn) => {
           btn.addEventListener("click", () => submitVote(Number(btn.dataset.voteIndex)));
@@ -513,6 +540,11 @@
         pairContent.querySelectorAll("[data-skip-index]").forEach((btn) => {
           btn.addEventListener("click", () => skipSong(Number(btn.dataset.skipIndex)));
         });
+        pairContent.querySelectorAll("[data-hide-artist-index]").forEach((btn) => {
+          btn.addEventListener("click", () => hideArtist(Number(btn.dataset.hideArtistIndex)));
+        });
+        const skipBothBtn = pairContent.querySelector("[data-skip-both]");
+        if (skipBothBtn) skipBothBtn.addEventListener("click", skipBothSongs);
 
         pairPanel.hidden = false;
       }
@@ -584,16 +616,67 @@
 
       async function skipSong(skipIndex) {
         if (!currentPair) return;
-        const keepSong = currentPair[skipIndex === 0 ? 1 : 0];
-        const response = await fetch(`/api/rate/next?${paramsFromObject(currentFilters)}`);
+        const songToSkip = currentPair[skipIndex];
+        const response = await fetch("/api/skips/songs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ song_ids: [songToSkip.song_id] }),
+        });
         if (!response.ok) {
-          statusEl.textContent = "Unable to find replacement song.";
+          const body = await response.json().catch(() => ({}));
+          statusEl.textContent = body.detail || "Unable to skip song.";
           return;
         }
-        const payload = await response.json();
-        const replacement = payload.pair.find((song) => song.song_id !== keepSong.song_id) || payload.pair[0];
-        renderPair({ pair: [keepSong, replacement] });
-        statusEl.textContent = "Skipped one song and loaded a replacement.";
+        statusEl.textContent = `Skipped "${songToSkip.title}" for your account.`;
+        await Promise.all([loadNextPair(), loadSkippedSongs()]);
+      }
+
+      async function skipBothSongs() {
+        if (!currentPair) return;
+        const response = await fetch("/api/skips/songs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ song_ids: currentPair.map((song) => song.song_id) }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          statusEl.textContent = body.detail || "Unable to skip both songs.";
+          return;
+        }
+        statusEl.textContent = "Skipped both songs for your account.";
+        await Promise.all([loadNextPair(), loadSkippedSongs()]);
+      }
+
+      async function hideArtist(songIndex) {
+        if (!currentPair) return;
+        const song = currentPair[songIndex];
+        const response = await fetch("/api/skips/artist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artist: song.artist }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          statusEl.textContent = body.detail || "Unable to hide artist.";
+          return;
+        }
+        statusEl.textContent = `Artist "${song.artist}" hidden from your ranking pool.`;
+        await Promise.all([loadNextPair(), loadSkippedSongs()]);
+      }
+
+      async function loadSkippedSongs() {
+        const response = await fetch("/api/skips");
+        const payload = await response.json().catch(() => ({ rows: [] }));
+        skippedBodyEl.innerHTML = (payload.rows || []).map((row) => `
+          <tr>
+            <td><input type="checkbox" data-skipped-song-id="${row.song_id}" /></td>
+            <td>${row.artist}</td>
+            <td>${row.album || ""}</td>
+            <td>${row.year || ""}</td>
+            <td>${row.title}</td>
+            <td>${new Date(row.skipped_at).toLocaleString()}</td>
+          </tr>
+        `).join("");
       }
 
       async function loadRankings() {
@@ -674,6 +757,38 @@
 
       document.getElementById("load-rankings").addEventListener("click", loadRankings);
       document.getElementById("load-history").addEventListener("click", loadHistory);
+      document.getElementById("load-skips").addEventListener("click", loadSkippedSongs);
+      document.getElementById("unskip-selected").addEventListener("click", async () => {
+        const selectedSongIds = Array.from(document.querySelectorAll("[data-skipped-song-id]:checked"))
+          .map((el) => Number(el.dataset.skippedSongId))
+          .filter((value) => Number.isFinite(value));
+        if (!selectedSongIds.length) {
+          statusEl.textContent = "Select at least one skipped song to unskip.";
+          return;
+        }
+        const response = await fetch("/api/skips/unskip-selected", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ song_ids: selectedSongIds }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = payload.detail || "Unable to unskip selected songs.";
+          return;
+        }
+        statusEl.textContent = `Unskipped ${payload.unskipped || 0} song(s).`;
+        await Promise.all([loadSkippedSongs(), loadNextPair()]);
+      });
+      document.getElementById("unskip-all").addEventListener("click", async () => {
+        const response = await fetch("/api/skips/unskip-all", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = payload.detail || "Unable to unskip all songs.";
+          return;
+        }
+        statusEl.textContent = `Unskipped ${payload.unskipped || 0} song(s).`;
+        await Promise.all([loadSkippedSongs(), loadNextPair()]);
+      });
       document.querySelectorAll(".sort-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const sortBy = btn.dataset.sort;
@@ -763,6 +878,7 @@
       loadAutocompleteOptions().then(loadNextPair);
       loadRankings();
       loadHistory();
+      loadSkippedSongs();
     }
   </script>
 </body>
