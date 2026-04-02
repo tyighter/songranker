@@ -106,6 +106,27 @@ class UserSkippedSong(Base):
     )
 
 
+class YouTubeLookupCache(Base):
+    __tablename__ = "youtube_lookup_cache"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    query_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    title_norm: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist_norm: Mapped[str] = mapped_column(String(255), nullable=False)
+    result: Mapped[str] = mapped_column(String(16), nullable=False)
+    video_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    checked_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     """SQLite only auto-increments INTEGER PRIMARY KEY, not BIGINT."""
     if getattr(target, "id", None) is not None:
@@ -120,5 +141,5 @@ def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     target.id = secrets.randbits(63)
 
 
-for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot, UserSkippedSong):
+for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot, UserSkippedSong, YouTubeLookupCache):
     event.listen(model, "before_insert", _assign_bigint_pk_for_sqlite)
