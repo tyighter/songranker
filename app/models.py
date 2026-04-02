@@ -96,15 +96,11 @@ def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     if connection.dialect.name != "sqlite":
         return
 
-    id_counters = connection.info.setdefault("sqlite_bigint_pk_counters", {})
-    table_name = target.__table__.name
-
-    if table_name not in id_counters:
-        next_id = connection.execute(select(func.coalesce(func.max(target.__table__.c.id), 0) + 1)).scalar_one()
-        id_counters[table_name] = int(next_id)
-
-    target.id = id_counters[table_name]
-    id_counters[table_name] += 1
+    # Recompute on each insert instead of caching per connection.
+    # A cached counter can drift when other DB connections insert rows,
+    # which can lead to duplicate primary keys.
+    next_id = connection.execute(select(func.coalesce(func.max(target.__table__.c.id), 0) + 1)).scalar_one()
+    target.id = int(next_id)
 
 
 for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot):
