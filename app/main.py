@@ -7,6 +7,7 @@ import math
 import random
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -48,6 +49,9 @@ SESSION_COOKIE_NAME = "songranker_session"
 SESSION_TTL_DAYS = 30
 LOG_FILE_PATH = Path("/log.log")
 logger = logging.getLogger(__name__)
+YOUTUBE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_youtube_lookup_cache_lock = threading.Lock()
+_youtube_lookup_cache: dict[tuple[str, str], dict[str, Any]] = {}
 
 app = FastAPI(title="SongRanker")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -654,26 +658,241 @@ def _extract_first_youtube_video_id(search_html: str) -> str | None:
     return None
 
 
-def _fetch_first_youtube_video_id(title: str, artist: str) -> str | None:
-    query = f"{(title or '').strip()} {(artist or '').strip()}".strip()
-    if not query:
-        return None
+class YouTubeLookupError(Exception):
+    def __init__(self, code: str, message: str, source: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.source = source
 
-    search_url = f"https://www.youtube.com/results?search_query={quote(query)}"
+
+def _log_youtube_lookup(event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    logger.info("youtube_lookup %s", json.dumps(payload, sort_keys=True, default=str))
+
+
+def _is_valid_youtube_video_id(video_id: str | None) -> bool:
+    return bool(video_id and YOUTUBE_ID_PATTERN.match(video_id))
+
+
+def _read_json_from_url(full_url: str, *, timeout: int = 15) -> dict[str, Any]:
     request = Request(
-        search_url,
+        full_url,
         headers={
-            "Accept": "text/html",
+            "Accept": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": "SongRanker/1.0",
         },
     )
-    with urlopen(request, timeout=15) as response:
-        search_html = response.read().decode("utf-8", errors="ignore")
-    return _extract_first_youtube_video_id(search_html)
+    with urlopen(request, timeout=timeout) as response:
+        payload = response.read().decode("utf-8", errors="ignore")
+    return json.loads(payload or "{}")
+
+
+class YouTubeSearchProvider:
+    name = "unknown"
+
+    def search(self, query: str, *, embeddable_only: bool) -> list[str]:
+        raise NotImplementedError
+
+
+class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
+    name = "youtube_data_api"
+
+    def __init__(self, api_key: str):
+        self.api_key = (api_key or "").strip()
+
+    def search(self, query: str, *, embeddable_only: bool) -> list[str]:
+        if not self.api_key:
+            raise YouTubeLookupError(
+                code="youtube_provider_unavailable",
+                message="YouTube Data API key is not configured.",
+                source=self.name,
+            )
+        params: dict[str, Any] = {
+            "part": "snippet",
+            "type": "video",
+            "maxResults": 3,
+            "q": query,
+            "key": self.api_key,
+        }
+        if embeddable_only:
+            params["videoEmbeddable"] = "true"
+        api_url = f"https://www.googleapis.com/youtube/v3/search?{urlencode(params)}"
+        try:
+            payload = _read_json_from_url(api_url, timeout=15)
+        except Exception as exc:
+            raise YouTubeLookupError(
+                code="youtube_network_failure",
+                message="Unable to contact YouTube provider.",
+                source=self.name,
+            ) from exc
+        items = payload.get("items") or []
+        video_ids: list[str] = []
+        for item in items:
+            item_id = item.get("id") if isinstance(item, dict) else None
+            video_id = item_id.get("videoId") if isinstance(item_id, dict) else None
+            if _is_valid_youtube_video_id(video_id):
+                video_ids.append(video_id)
+        return video_ids
+
+
+class YouTubeHtmlSearchProvider(YouTubeSearchProvider):
+    name = "youtube_html_scrape"
+
+    def search(self, query: str, *, embeddable_only: bool) -> list[str]:
+        if embeddable_only:
+            return []
+        search_url = f"https://www.youtube.com/results?search_query={quote(query)}"
+        request = Request(
+            search_url,
+            headers={
+                "Accept": "text/html",
+                "Accept-Language": "en-US,en;q=0.9",
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+        try:
+            with urlopen(request, timeout=15) as response:
+                search_html = response.read().decode("utf-8", errors="ignore")
+        except Exception as exc:
+            raise YouTubeLookupError(
+                code="youtube_network_failure",
+                message="Unable to contact YouTube provider.",
+                source=self.name,
+            ) from exc
+        candidate = _extract_first_youtube_video_id(search_html)
+        return [candidate] if _is_valid_youtube_video_id(candidate) else []
+
+
+def _cache_key_for_youtube_lookup(title: str, artist: str) -> tuple[str, str]:
+    return ((title or "").strip().lower(), (artist or "").strip().lower())
+
+
+def _get_cached_youtube_lookup(title: str, artist: str) -> dict[str, Any] | None:
+    cache_key = _cache_key_for_youtube_lookup(title, artist)
+    now = datetime.now(timezone.utc)
+    with _youtube_lookup_cache_lock:
+        cached = _youtube_lookup_cache.get(cache_key)
+        if not cached:
+            return None
+        if cached["expires_at"] <= now:
+            _youtube_lookup_cache.pop(cache_key, None)
+            return None
+        return cached
+
+
+def _set_cached_youtube_lookup(title: str, artist: str, cached_result: dict[str, Any]) -> None:
+    ttl_seconds = max(30, settings.youtube_lookup_cache_ttl_seconds)
+    cache_key = _cache_key_for_youtube_lookup(title, artist)
+    with _youtube_lookup_cache_lock:
+        _youtube_lookup_cache[cache_key] = {
+            **cached_result,
+            "expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+        }
+
+
+def _make_youtube_provider_chain() -> list[YouTubeSearchProvider]:
+    providers: list[YouTubeSearchProvider] = [YouTubeDataApiSearchProvider(settings.youtube_data_api_key)]
+    fallback = settings.youtube_search_fallback_provider.strip().lower()
+    if fallback == "youtube_html_scrape":
+        providers.append(YouTubeHtmlSearchProvider())
+    return providers
+
+
+def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
+    query = f"{(title or '').strip()} {(artist or '').strip()}".strip()
+    if not query:
+        raise YouTubeLookupError(
+            code="video_not_found",
+            message="No YouTube video found for the requested song.",
+            source="input",
+        )
+
+    if cached := _get_cached_youtube_lookup(title, artist):
+        _log_youtube_lookup("cache_hit", title=title, artist=artist, result=cached.get("result"), source=cached.get("source"))
+        return cached
+
+    providers = _make_youtube_provider_chain()
+    last_network_error: YouTubeLookupError | None = None
+    saw_any_non_embeddable = False
+    for provider in providers:
+        try:
+            embeddable_matches = provider.search(query, embeddable_only=True)
+            if embeddable_matches:
+                video_id = embeddable_matches[0]
+                result = {"result": "ok", "video_id": video_id, "source": provider.name}
+                _set_cached_youtube_lookup(title, artist, result)
+                _log_youtube_lookup(
+                    "lookup_success",
+                    title=title,
+                    artist=artist,
+                    source=provider.name,
+                    query=query,
+                    video_id=video_id,
+                )
+                return result
+
+            any_matches = provider.search(query, embeddable_only=False)
+            if any_matches:
+                saw_any_non_embeddable = True
+                _log_youtube_lookup(
+                    "lookup_non_embeddable_candidate",
+                    title=title,
+                    artist=artist,
+                    source=provider.name,
+                    query=query,
+                )
+        except YouTubeLookupError as exc:
+            if exc.code == "youtube_network_failure":
+                last_network_error = exc
+                _log_youtube_lookup(
+                    "provider_network_failure",
+                    title=title,
+                    artist=artist,
+                    source=provider.name,
+                    query=query,
+                    code=exc.code,
+                )
+                continue
+            _log_youtube_lookup(
+                "provider_error",
+                title=title,
+                artist=artist,
+                source=provider.name,
+                query=query,
+                code=exc.code,
+            )
+            continue
+
+    if saw_any_non_embeddable:
+        failure = {
+            "result": "error",
+            "code": "video_not_embeddable",
+            "message": "Only non-embeddable YouTube videos were found for the requested song.",
+            "source": "provider_chain",
+        }
+        _set_cached_youtube_lookup(title, artist, failure)
+        raise YouTubeLookupError(
+            code=failure["code"],
+            message=failure["message"],
+            source=failure["source"],
+        )
+
+    if last_network_error is not None:
+        raise last_network_error
+
+    failure = {
+        "result": "error",
+        "code": "video_not_found",
+        "message": "No YouTube video found for the requested song.",
+        "source": "provider_chain",
+    }
+    _set_cached_youtube_lookup(title, artist, failure)
+    raise YouTubeLookupError(code=failure["code"], message=failure["message"], source=failure["source"])
 
 
 @app.middleware("http")
@@ -1055,20 +1274,37 @@ def get_first_youtube_video(
     _: User = Depends(_require_current_user),
 ):
     try:
-        video_id = _fetch_first_youtube_video_id(title=title, artist=artist)
+        result = _fetch_first_youtube_video(title=title, artist=artist)
+        video_id = result.get("video_id")
+        if not _is_valid_youtube_video_id(video_id):
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "invalid_video_id", "message": "Provider returned an invalid YouTube video id."},
+            )
+        return {"video_id": video_id}
+    except YouTubeLookupError as exc:
+        status_code = 404
+        if exc.code == "youtube_network_failure":
+            status_code = 502
+        elif exc.code == "video_not_embeddable":
+            status_code = 422
+        _log_youtube_lookup(
+            "lookup_failed",
+            title=title,
+            artist=artist,
+            code=exc.code,
+            source=exc.source,
+            status_code=status_code,
+        )
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": exc.message})
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("YouTube first-video lookup failed | title=%s artist=%s", title, artist)
         raise HTTPException(
             status_code=502,
             detail={"code": "youtube_fetch_failed", "message": "Unable to contact YouTube right now."},
         )
-
-    if not video_id:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "video_not_found", "message": "No YouTube video found for the requested song."},
-        )
-    return {"video_id": video_id}
 
 
 @app.get("/api/rate/next", response_model=NextPairResponse)

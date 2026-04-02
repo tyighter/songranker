@@ -798,6 +798,10 @@
         return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
       }
 
+      function renderYouTubeFallbackStatus(statusEl, message, fallbackSearchUrl) {
+        statusEl.innerHTML = `${escapeHtml(message)} <a href="${fallbackSearchUrl}" target="_blank" rel="noopener noreferrer">Open YouTube search</a>`;
+      }
+
       async function embedFirstYouTubeVideo(triggerEl) {
         if (!triggerEl || triggerEl.dataset.youtubeEmbedded === "true" || triggerEl.dataset.youtubeLoading === "true") return;
         const cardEl = triggerEl.closest(".album-media-shell");
@@ -816,7 +820,12 @@
           const payload = await response.json().catch(() => ({}));
           if (!response.ok || !payload.video_id) {
             const detailMessage = payload?.detail?.message || payload?.detail || "No playable video found.";
-            embedStatusEl.textContent = `${detailMessage} Try YouTube search instead.`;
+            const detailCode = payload?.detail?.code || "";
+            if (detailCode === "video_not_found" || detailCode === "video_not_embeddable") {
+              renderYouTubeFallbackStatus(embedStatusEl, detailMessage, fallbackSearchUrl);
+            } else {
+              embedStatusEl.textContent = detailMessage;
+            }
             console.error("[SongRanker][youtube] lookup_failed", { title, artist, fallbackSearchUrl, payload, status: response.status });
             return;
           }
