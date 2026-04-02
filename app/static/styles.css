@@ -75,6 +75,34 @@ main {
   margin-bottom: 1.1rem;
 }
 
+.onboarding-panel {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 5;
+  box-shadow: 0 8px 22px rgba(17, 42, 84, 0.08);
+}
+
+.onboarding-progress {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+  color: #304255;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.onboarding-actions button {
+  margin-top: 0;
+  margin-right: 0;
+}
+
+.onboarding-helper {
+  margin: 0.5rem 0 0;
+}
+
 label {
   display: block;
   margin-bottom: 0.5rem;
@@ -472,6 +500,19 @@ body.modal-open {
 @media (max-width: 640px) {
   body {
     padding: 1rem 0.75rem 1.5rem;
+  }
+
+  .onboarding-panel {
+    top: 0.35rem;
+    padding: 0.9rem;
+  }
+
+  .onboarding-actions {
+    flex-direction: column;
+  }
+
+  .onboarding-actions button {
+    width: 100%;
   }
 
   .filter-modal-actions {
