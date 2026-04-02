@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -388,10 +388,7 @@ def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) 
     payload = _serialize_song(song, score)
     album_art_url = None
     if app_settings.plex_url and app_settings.plex_token and song.plex_rating_key:
-        album_art_url = (
-            f"{app_settings.plex_url.rstrip('/')}/library/metadata/{song.plex_rating_key}/thumb"
-            f"?X-Plex-Token={app_settings.plex_token}"
-        )
+        album_art_url = f"/api/plex/album-art/{song.plex_rating_key}"
     payload["album_art_url"] = album_art_url
     return payload
 
@@ -779,6 +776,31 @@ def resync_plex(
         db.rollback()
         logger.exception("Manual Plex resync failed")
         raise
+
+
+@app.get("/api/plex/album-art/{rating_key}")
+def plex_album_art(
+    rating_key: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_current_user),
+):
+    app_settings = _get_or_create_settings(db)
+    if not app_settings.plex_url or not app_settings.plex_token:
+        raise HTTPException(status_code=400, detail="Plex settings are incomplete")
+
+    request = Request(
+        f"{app_settings.plex_url.rstrip('/')}/library/metadata/{rating_key}/thumb"
+        f"?{urlencode({'X-Plex-Token': app_settings.plex_token})}"
+    )
+    try:
+        with urlopen(request, timeout=20) as plex_response:
+            payload = plex_response.read()
+            media_type = plex_response.headers.get("Content-Type", "image/jpeg")
+    except Exception:
+        logger.exception("Album art request failed for rating_key=%s", rating_key)
+        raise HTTPException(status_code=502, detail="Unable to fetch album art from Plex")
+
+    return Response(content=payload, media_type=media_type)
 
 
 @app.get("/api/rate/next", response_model=NextPairResponse)
