@@ -295,6 +295,7 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
     updated = 0
     page_size = 200
     start = 0
+    album_year_cache: dict[str, int | None] = {}
 
     while True:
         root = _plex_get_xml(
@@ -316,6 +317,30 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
             album = track.attrib.get("parentTitle")
             year_raw = track.attrib.get("year")
             year = int(year_raw) if year_raw and year_raw.isdigit() else None
+            if year is None:
+                parent_rating_key = track.attrib.get("parentRatingKey")
+                if parent_rating_key:
+                    if parent_rating_key in album_year_cache:
+                        year = album_year_cache[parent_rating_key]
+                    else:
+                        album_year: int | None = None
+                        try:
+                            album_root = _plex_get_xml(
+                                app_settings.plex_url,
+                                app_settings.plex_token,
+                                f"/library/metadata/{parent_rating_key}",
+                            )
+                            album_entry = album_root.find("Directory") or album_root.find("Video")
+                            if album_entry is not None:
+                                album_year_raw = album_entry.attrib.get("year")
+                                album_year = int(album_year_raw) if album_year_raw and album_year_raw.isdigit() else None
+                        except Exception:
+                            logger.warning(
+                                "Unable to resolve album metadata for parentRatingKey=%s during Plex sync",
+                                parent_rating_key,
+                            )
+                        album_year_cache[parent_rating_key] = album_year
+                        year = album_year
             source_uri = track.attrib.get("key")
             plex_user_rating = _parse_plex_user_rating(track.attrib.get("userRating"))
             plex_rating_count = _parse_plex_rating_count(track.attrib.get("ratingCount"))
