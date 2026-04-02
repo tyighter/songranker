@@ -229,6 +229,19 @@ def _decade_for_year(year: int | None) -> str | None:
     return f"{(year // 10) * 10}s"
 
 
+def _decade_bounds(decade: str | None) -> tuple[int, int] | None:
+    if not decade:
+        return None
+    cleaned = str(decade).strip().lower()
+    if len(cleaned) != 5 or not cleaned.endswith("s"):
+        return None
+    decade_start_raw = cleaned[:4]
+    if not decade_start_raw.isdigit():
+        return None
+    decade_start = int(decade_start_raw)
+    return decade_start, decade_start + 9
+
+
 def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, int]:
     if not app_settings.plex_url or not app_settings.plex_token or not app_settings.plex_music_section_id:
         raise HTTPException(status_code=400, detail="Plex settings are incomplete")
@@ -434,7 +447,16 @@ def _apply_filters(query, filters: dict[str, Any]):
         query = query.filter(Song.album == album)
 
     if decade := filters.get("decade"):
-        query = query.filter(Song.decade == decade)
+        if bounds := _decade_bounds(decade):
+            decade_start, decade_end = bounds
+            query = query.filter(
+                or_(
+                    Song.year.between(decade_start, decade_end),
+                    Song.decade == decade,
+                )
+            )
+        else:
+            query = query.filter(Song.decade == decade)
 
     if title_query := filters.get("title_query"):
         query = query.filter(Song.title.ilike(f"%{title_query}%"))
@@ -1101,7 +1123,18 @@ def get_vote_history(
         query = query.filter((winner_song.album == album) | (loser_song.album == album))
         filters["album"] = album
     if decade:
-        query = query.filter((winner_song.decade == decade) | (loser_song.decade == decade))
+        if bounds := _decade_bounds(decade):
+            decade_start, decade_end = bounds
+            query = query.filter(
+                or_(
+                    winner_song.year.between(decade_start, decade_end),
+                    loser_song.year.between(decade_start, decade_end),
+                    winner_song.decade == decade,
+                    loser_song.decade == decade,
+                )
+            )
+        else:
+            query = query.filter((winner_song.decade == decade) | (loser_song.decade == decade))
         filters["decade"] = decade
     if date_from:
         query = query.filter(PairwiseVote.created_at >= datetime.fromisoformat(date_from))
