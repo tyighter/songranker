@@ -11,15 +11,15 @@
     <header class="top-bar">
       <h1>SongRanker</h1>
       {% if is_authenticated %}
-      <button type="button" id="toggle-header-menu" class="hamburger-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="header-menu-panel">☰</button>
+      <button type="button" id="toggle-header-menu" class="hamburger-btn btn-ghost" aria-label="Open navigation menu" aria-expanded="false" aria-controls="header-menu-panel">☰</button>
       <div class="header-menu-backdrop" id="header-menu-backdrop" hidden></div>
       <div class="header-menu-panel" id="header-menu-panel" aria-hidden="true">
         <div class="top-actions">
-          <button type="button" id="open-pool-status-modal">Pool status</button>
-          <button type="button" id="open-filters-modal">Filters</button>
-          <button type="button" id="open-rankings-modal">Rankings</button>
-          <button type="button" id="open-user-modal">User info</button>
-          <button type="button" id="open-settings-modal">Settings</button>
+          <button type="button" id="open-pool-status-modal" class="btn-ghost">Pool status</button>
+          <button type="button" id="open-filters-modal" class="btn-ghost">Filters</button>
+          <button type="button" id="open-rankings-modal" class="btn-ghost">Rankings</button>
+          <button type="button" id="open-user-modal" class="btn-ghost">User info</button>
+          <button type="button" id="open-settings-modal" class="btn-ghost">Settings</button>
         </div>
       </div>
       {% endif %}
@@ -32,7 +32,7 @@
     <section class="panel">
       <h2>Sign in required</h2>
       <p>Sign in to rank songs and view your rating history.</p>
-      <button type="button" id="open-signin-modal">Sign in / create account</button>
+      <button type="button" id="open-signin-modal" class="btn-primary">Sign in / create account</button>
     </section>
     {% endif %}
 
@@ -50,14 +50,14 @@
   {% if is_authenticated %}
   <div class="modal-backdrop" id="user-modal" aria-hidden="true" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
-      <button type="button" class="modal-close" data-close-modal="user-modal" aria-label="Close user dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" data-close-modal="user-modal" aria-label="Close user dialog">×</button>
       <h2 id="user-modal-title">User info</h2>
       <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
       <div class="inline-forms">
         <form method="post" action="/api/auth/signout">
-          <button type="submit">Sign out</button>
+          <button type="submit" class="btn-secondary">Sign out</button>
         </form>
-        <button id="reset-personal-rankings-btn" type="button" class="secondary">Reset personal rankings</button>
+        <button id="reset-personal-rankings-btn" type="button" class="btn-danger">Reset personal rankings</button>
       </div>
       <h3>Switch user</h3>
       <form method="post" action="/api/auth/switch-user">
@@ -69,7 +69,7 @@
           </select>
         </label>
         <label>Password <input type="password" name="password" required /></label>
-        <button type="submit">Switch user</button>
+        <button type="submit" class="btn-primary">Switch user</button>
       </form>
 
       <h3>My Ratings / History</h3>
@@ -81,7 +81,7 @@
         <label>Date to <input type="date" id="history-date-to" /></label>
       </div>
       <div class="inline-forms">
-        <button id="load-history" type="button">Load history</button>
+        <button id="load-history" type="button" class="btn-secondary">Load history</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -99,17 +99,17 @@
 
       <h3>Ranked List</h3>
       <div class="inline-forms">
-        <button id="load-rankings" type="button">Refresh rankings</button>
+        <button id="load-rankings" type="button" class="btn-secondary">Refresh rankings</button>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th><button type="button" class="sort-btn" data-sort="rank">Rank</button></th>
-              <th><button type="button" class="sort-btn" data-sort="score">Score</button></th>
-              <th><button type="button" class="sort-btn" data-sort="artist">Artist</button></th>
-              <th class="hide-sm"><button type="button" class="sort-btn" data-sort="album">Album</button></th>
-              <th class="hide-sm"><button type="button" class="sort-btn" data-sort="year">Year</button></th>
+              <th><button type="button" class="sort-btn btn-ghost" data-sort="rank">Rank</button></th>
+              <th><button type="button" class="sort-btn btn-ghost" data-sort="score">Score</button></th>
+              <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist</button></th>
+              <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="album">Album</button></th>
+              <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="year">Year</button></th>
               <th>Title</th>
             </tr>
           </thead>
@@ -119,9 +119,9 @@
 
       <h3>Skipped Songs</h3>
       <div class="inline-forms">
-        <button id="load-skips" type="button">Refresh skipped songs</button>
-        <button id="unskip-selected" type="button" class="secondary">Unskip selected</button>
-        <button id="unskip-all" type="button" class="secondary">Unskip all</button>
+        <button id="load-skips" type="button" class="btn-secondary">Refresh skipped songs</button>
+        <button id="unskip-selected" type="button" class="btn-ghost">Unskip selected</button>
+        <button id="unskip-all" type="button" class="btn-ghost">Unskip all</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -143,14 +143,14 @@
 
   <div class="modal-backdrop" id="settings-modal" aria-hidden="true" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
-      <button type="button" class="modal-close" data-close-modal="settings-modal" aria-label="Close settings dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" data-close-modal="settings-modal" aria-label="Close settings dialog">×</button>
       <h2 id="settings-modal-title">Settings</h2>
       <p>Plex settings and sync controls.</p>
       <form id="plex-credentials-form">
         <h3>Plex connection</h3>
         <label>Plex URL <input type="url" id="plex-url-input" name="plex_url" required /></label>
         <label>Plex Token <input type="password" id="plex-token-input" name="plex_token" required /></label>
-        <button id="save-plex-btn" type="submit">Save Plex credentials</button>
+        <button id="save-plex-btn" type="submit" class="btn-primary">Save Plex credentials</button>
       </form>
       <p id="plex-connection-status" class="status-info status-hidden" aria-live="polite"></p>
       <form id="plex-library-form">
@@ -160,17 +160,17 @@
             <option value="">Select one...</option>
           </select>
         </label>
-        <button id="save-library-btn" type="submit">Apply library</button>
+        <button id="save-library-btn" type="submit" class="btn-primary">Apply library</button>
       </form>
-      <button id="resync-btn" type="button">Manual Plex resync</button>
-      <button id="reset-global-rankings-btn" type="button" class="secondary">Reset global rankings</button>
+      <button id="resync-btn" type="button" class="btn-secondary">Manual Plex resync</button>
+      <button id="reset-global-rankings-btn" type="button" class="btn-danger">Reset global rankings</button>
       <p id="settings-status" class="status-info status-hidden" aria-live="polite"></p>
     </div>
   </div>
 
   <div class="modal-backdrop" id="filters-modal" aria-hidden="true" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="filters-modal-title">
-      <button type="button" class="modal-close" data-close-modal="filters-modal" aria-label="Close filters dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" data-close-modal="filters-modal" aria-label="Close filters dialog">×</button>
       <h2 id="filters-modal-title">Ranking filters</h2>
       <p>Choose which songs to include in your next comparisons.</p>
       <form id="filters-form" class="filter-modal-form">
@@ -197,8 +197,8 @@
           </label>
         </div>
         <div class="inline-forms filter-modal-actions">
-          <button id="apply-filters-btn" type="button">Apply filters</button>
-          <button id="clear-filters-btn" type="button" class="secondary">Clear</button>
+          <button id="apply-filters-btn" type="button" class="btn-primary">Apply filters</button>
+          <button id="clear-filters-btn" type="button" class="btn-ghost">Clear</button>
         </div>
       </form>
     </div>
@@ -206,7 +206,7 @@
 
   <div class="modal-backdrop" id="pool-status-modal" aria-hidden="true" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pool-status-modal-title">
-      <button type="button" class="modal-close" data-close-modal="pool-status-modal" aria-label="Close ranking pool status dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" data-close-modal="pool-status-modal" aria-label="Close ranking pool status dialog">×</button>
       <h2 id="pool-status-modal-title">Ranking pool status</h2>
       <p id="filter-summary" class="filter-summary">Active filters: none.</p>
       <p id="status"></p>
@@ -215,7 +215,7 @@
 
   <div class="modal-backdrop" id="rankings-modal" aria-hidden="true" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rankings-modal-title">
-      <button type="button" class="modal-close" data-close-modal="rankings-modal" aria-label="Close rankings dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" data-close-modal="rankings-modal" aria-label="Close rankings dialog">×</button>
       <h2 id="rankings-modal-title">Top Ten Rankings</h2>
       <p>Compare your personal top ten against the global top ten using the same filters as the ranking pool.</p>
       <form id="rankings-modal-filters-form" class="filter-modal-form">
@@ -242,8 +242,8 @@
           </label>
         </div>
         <div class="inline-forms filter-modal-actions">
-          <button id="refresh-rankings-modal-btn" type="button">Refresh top tens</button>
-          <button id="clear-rankings-modal-filters-btn" type="button" class="secondary">Clear</button>
+          <button id="refresh-rankings-modal-btn" type="button" class="btn-secondary">Refresh top tens</button>
+          <button id="clear-rankings-modal-filters-btn" type="button" class="btn-ghost">Clear</button>
         </div>
       </form>
       <h3>Personal top ten</h3>
@@ -286,22 +286,22 @@
 
   <div class="modal-backdrop" id="signin-modal" aria-hidden="true" {% if is_authenticated %}hidden{% endif %}>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signin-modal-title">
-      <button type="button" class="modal-close" id="close-signin-modal" aria-label="Close sign-in dialog">×</button>
+      <button type="button" class="modal-close btn-ghost" id="close-signin-modal" aria-label="Close sign-in dialog">×</button>
       <h2 id="signin-modal-title">Sign in</h2>
       <form method="post" action="/api/auth/signin">
         <label>Username <input type="text" name="username" required /></label>
         <label>Password <input type="password" name="password" required /></label>
-        <button type="submit">Sign in</button>
+        <button type="submit" class="btn-primary">Sign in</button>
       </form>
 
-      <button type="button" class="toggle-inline-btn" id="toggle-create-user">Create new user</button>
+      <button type="button" class="toggle-inline-btn btn-ghost" id="toggle-create-user">Create new user</button>
       <div id="create-user-section" hidden>
         <h3>Create user</h3>
         <form method="post" action="/api/auth/create-user">
           <label>Username <input type="text" name="username" required /></label>
           <label>Email <input type="email" name="email" required /></label>
           <label>Password <input type="password" name="password" required minlength="6" /></label>
-          <button type="submit">Create user</button>
+          <button type="submit" class="btn-primary">Create user</button>
         </form>
       </div>
 
@@ -631,14 +631,14 @@
             <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
             <div class="song-card-actions">
               <button type="button" data-vote-index="${index}" class="btn-primary">Choose this song</button>
-              <button type="button" data-skip-index="${index}" class="btn-secondary-subtle">Skip song</button>
-              <button type="button" data-hide-artist-index="${index}" class="btn-secondary-subtle">Hide artist</button>
+              <button type="button" data-skip-index="${index}" class="btn-ghost">Skip song</button>
+              <button type="button" data-hide-artist-index="${index}" class="btn-ghost">Hide artist</button>
             </div>
           </div>
         `).join("");
         pairContent.insertAdjacentHTML("beforeend", `
           <div class="pair-wide-actions">
-            <button type="button" data-skip-both class="btn-tertiary">Skip Both</button>
+            <button type="button" data-skip-both class="btn-ghost">Skip Both</button>
           </div>
         `);
 

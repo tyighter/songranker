@@ -1,4 +1,7 @@
 body {
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --button-height: 2.5rem;
   font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   margin: 0;
   padding: 2rem 1.25rem 2.5rem;
@@ -153,15 +156,22 @@ code {
 }
 
 button {
-  padding: 0.55rem 0.95rem;
-  margin-top: 0.5rem;
-  margin-right: 0.5rem;
+  --btn-height: var(--button-height);
+  --btn-padding-x: 1rem;
+  --btn-gap: var(--space-2);
+  min-height: var(--btn-height);
+  padding: 0.55rem var(--btn-padding-x);
+  margin-top: var(--btn-gap);
+  margin-right: var(--btn-gap);
   cursor: pointer;
-  border: 1px solid #2f6fec;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: #2f6fec;
-  color: #fff;
   font-weight: 600;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.08s ease;
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 button:focus-visible,
@@ -173,56 +183,60 @@ a[href]:focus-visible {
   outline-offset: 2px;
 }
 
-button.secondary {
-  background: #eef3ff;
-  border-color: #cedaf8;
-  color: #2a4d93;
-}
 
+button,
 .btn-primary {
-  width: 100%;
-  padding: 0.75rem 1.15rem;
-  margin-top: 0;
-  margin-right: 0;
   border-color: #1552c4;
   background: #1d5fd8;
   color: #ffffff;
-  font-weight: 700;
 }
 
+button:hover,
 .btn-primary:hover {
   background: #174ea8;
   border-color: #133f89;
 }
 
-.btn-primary:focus-visible {
-  outline: 3px solid #8ab4ff;
-  outline-offset: 2px;
+.btn-secondary {
+  border-color: #cedaf8;
+  background: #eef3ff;
+  color: #2a4d93;
 }
 
-.btn-secondary-subtle,
-.btn-tertiary {
-  width: 100%;
-  margin-top: 0;
-  margin-right: 0;
-  padding: 0.5rem 0.8rem;
+.btn-secondary:hover {
+  background: #e0eaff;
+  border-color: #bccdf5;
+}
+
+.btn-ghost {
   border-color: #d7dee8;
   background: #f7f9fc;
   color: #46576b;
-  font-weight: 600;
 }
 
-.btn-secondary-subtle:hover,
-.btn-tertiary:hover {
+.btn-ghost:hover {
   background: #edf2f8;
   border-color: #c6d0de;
   color: #304255;
 }
 
-.btn-secondary-subtle:focus-visible,
-.btn-tertiary:focus-visible {
-  outline: 3px solid #b9c8db;
-  outline-offset: 2px;
+.btn-danger {
+  border-color: #b43535;
+  background: #d64a4a;
+  color: #ffffff;
+}
+
+.btn-danger:hover {
+  background: #bf3b3b;
+  border-color: #9e2d2d;
+}
+
+.btn-secondary:active,
+.btn-ghost:active,
+.btn-danger:active,
+.btn-primary:active,
+button:active {
+  filter: brightness(0.97);
 }
 
 #pair-content {
@@ -332,12 +346,12 @@ button.secondary {
 .inline-forms {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .grid-3, .grid-4 {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .grid-3 {
@@ -384,7 +398,7 @@ button.secondary {
 .filter-modal-form {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .filter-modal-actions {
