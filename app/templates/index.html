@@ -15,6 +15,7 @@
       <div class="header-menu-backdrop" id="header-menu-backdrop" hidden></div>
       <div class="header-menu-panel" id="header-menu-panel" aria-hidden="true">
         <div class="top-actions">
+          <button type="button" id="open-pool-status-modal">Pool status</button>
           <button type="button" id="open-filters-modal">Filters</button>
           <button type="button" id="open-rankings-modal">Rankings</button>
           <button type="button" id="open-user-modal">User info</button>
@@ -36,12 +37,6 @@
     {% endif %}
 
     {% if is_authenticated %}
-    <section class="panel">
-      <h2>Ranking pool status</h2>
-      <p id="filter-summary" class="filter-summary">Active filters: none.</p>
-      <p id="status"></p>
-    </section>
-
     <section class="panel" id="pair-panel" hidden>
       <h2>Pick your winner</h2>
       <div id="pair-content"></div>
@@ -204,6 +199,15 @@
           <button id="clear-filters-btn" type="button" class="secondary">Clear</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="pool-status-modal" aria-hidden="true" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pool-status-modal-title">
+      <button type="button" class="modal-close" data-close-modal="pool-status-modal" aria-label="Close ranking pool status dialog">×</button>
+      <h2 id="pool-status-modal-title">Ranking pool status</h2>
+      <p id="filter-summary" class="filter-summary">Active filters: none.</p>
+      <p id="status"></p>
     </div>
   </div>
 
@@ -443,6 +447,7 @@
       const headerMenuBackdrop = document.getElementById("header-menu-backdrop");
       headerMenuPanelEl = headerMenuPanel;
       const openFiltersModalBtn = document.getElementById("open-filters-modal");
+      const openPoolStatusModalBtn = document.getElementById("open-pool-status-modal");
       const openUserModalBtn = document.getElementById("open-user-modal");
       const openRankingsModalBtn = document.getElementById("open-rankings-modal");
       const openSettingsModalBtn = document.getElementById("open-settings-modal");
@@ -460,6 +465,10 @@
         closeHeaderMenu();
         openModal("settings-modal");
         await loadPlexSettings();
+      });
+      openPoolStatusModalBtn.addEventListener("click", () => {
+        closeHeaderMenu();
+        openModal("pool-status-modal");
       });
 
       const statusEl = document.getElementById("status");
