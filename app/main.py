@@ -460,11 +460,10 @@ def _expected_score(rating_a: int, rating_b: int) -> float:
     return 1.0 / (1.0 + math.pow(10, (rating_b - rating_a) / 400.0))
 
 
-def _ranking_score_from_points(winner_count: int, vote_count: int) -> float:
+def _ranking_score_from_matchups(winner_count: int, vote_count: int) -> float:
     if vote_count <= 0:
         return 0.0
-    points = winner_count * 100
-    return round(points / vote_count, 2)
+    return round(winner_count / vote_count, 4)
 
 
 def _apply_filters(query, filters: dict[str, Any]):
@@ -1208,23 +1207,25 @@ def get_rankings(
 
     vote_counts: dict[int, int] = {}
     winner_lookup: dict[int, int] = {}
+    loser_lookup: dict[int, int] = {}
     for song_id, count in winner_counts:
         winner_lookup[song_id] = count
         vote_counts[song_id] = vote_counts.get(song_id, 0) + count
     for song_id, count in loser_counts:
+        loser_lookup[song_id] = count
         vote_counts[song_id] = vote_counts.get(song_id, 0) + count
 
     rows = []
     for song in songs:
         winner_count = winner_lookup.get(song.id, 0)
+        loser_count = loser_lookup.get(song.id, 0)
         vote_count = vote_counts.get(song.id, 0)
-        points = winner_count * 100
-        if points <= 0:
+        if vote_count <= 0:
             continue
-        row = _serialize_song(song, _ranking_score_from_points(winner_count, vote_count))
+        row = _serialize_song(song, _ranking_score_from_matchups(winner_count, vote_count))
         row["winner_count"] = winner_count
+        row["loser_count"] = loser_count
         row["vote_count"] = vote_count
-        row["points"] = points
         rows.append(row)
 
     rows.sort(key=lambda row: (-row["score"], row["artist"], row["title"], row["song_id"]))
