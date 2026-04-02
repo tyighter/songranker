@@ -251,9 +251,9 @@ def _decade_for_year(year: int | None) -> str | None:
 
 
 def _decade_bounds(decade: str | None) -> tuple[int, int] | None:
-    if not decade:
+    cleaned = _normalize_decade(decade)
+    if not cleaned:
         return None
-    cleaned = str(decade).strip().lower()
     if len(cleaned) != 5 or not cleaned.endswith("s"):
         return None
     decade_start_raw = cleaned[:4]
@@ -261,6 +261,13 @@ def _decade_bounds(decade: str | None) -> tuple[int, int] | None:
         return None
     decade_start = int(decade_start_raw)
     return decade_start, decade_start + 9
+
+
+def _normalize_decade(decade: str | None) -> str | None:
+    if not decade:
+        return None
+    cleaned = str(decade).strip().lower().replace("'", "")
+    return cleaned or None
 
 
 def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, int]:
@@ -467,17 +474,17 @@ def _apply_filters(query, filters: dict[str, Any]):
     if album := filters.get("album"):
         query = query.filter(Song.album == album)
 
-    if decade := filters.get("decade"):
+    if decade := _normalize_decade(filters.get("decade")):
         if bounds := _decade_bounds(decade):
             decade_start, decade_end = bounds
             query = query.filter(
                 or_(
                     Song.year.between(decade_start, decade_end),
-                    Song.decade == decade,
+                    func.lower(Song.decade) == decade,
                 )
             )
         else:
-            query = query.filter(Song.decade == decade)
+            query = query.filter(func.lower(Song.decade) == decade)
 
     if title_query := filters.get("title_query"):
         query = query.filter(Song.title.ilike(f"%{title_query}%"))
@@ -991,8 +998,8 @@ def get_next_pair(
         filters["artist"] = artist
     if album:
         filters["album"] = album
-    if decade:
-        filters["decade"] = decade
+    if normalized_decade := _normalize_decade(decade):
+        filters["decade"] = normalized_decade
     if title_query:
         filters["title_query"] = title_query
     if song_ids:
@@ -1160,8 +1167,8 @@ def get_rankings(
         filters["artist"] = artist
     if album:
         filters["album"] = album
-    if decade:
-        filters["decade"] = decade
+    if normalized_decade := _normalize_decade(decade):
+        filters["decade"] = normalized_decade
 
     scope = (scope or "personal").lower()
     if scope not in {"personal", "global"}:
@@ -1286,20 +1293,23 @@ def get_vote_history(
     if album:
         query = query.filter((winner_song.album == album) | (loser_song.album == album))
         filters["album"] = album
-    if decade:
-        if bounds := _decade_bounds(decade):
+    if normalized_decade := _normalize_decade(decade):
+        if bounds := _decade_bounds(normalized_decade):
             decade_start, decade_end = bounds
             query = query.filter(
                 or_(
                     winner_song.year.between(decade_start, decade_end),
                     loser_song.year.between(decade_start, decade_end),
-                    winner_song.decade == decade,
-                    loser_song.decade == decade,
+                    func.lower(winner_song.decade) == normalized_decade,
+                    func.lower(loser_song.decade) == normalized_decade,
                 )
             )
         else:
-            query = query.filter((winner_song.decade == decade) | (loser_song.decade == decade))
-        filters["decade"] = decade
+            query = query.filter(
+                (func.lower(winner_song.decade) == normalized_decade)
+                | (func.lower(loser_song.decade) == normalized_decade)
+            )
+        filters["decade"] = normalized_decade
     if date_from:
         query = query.filter(PairwiseVote.created_at >= datetime.fromisoformat(date_from))
         filters["date_from"] = date_from
