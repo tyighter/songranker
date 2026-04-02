@@ -272,8 +272,13 @@ def _decade_bounds(decade: str | None) -> tuple[int, int] | None:
 def _normalize_decade(decade: str | None) -> str | None:
     if not decade:
         return None
-    cleaned = str(decade).strip().lower().replace("'", "")
-    return cleaned or None
+    cleaned = str(decade).strip().lower()
+    if len(cleaned) == 4 and cleaned.isdigit():
+        cleaned = f"{cleaned}s"
+    if len(cleaned) == 5 and cleaned.endswith("s") and cleaned[:4].isdigit():
+        return cleaned
+
+    return None
 
 
 def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, int]:
