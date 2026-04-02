@@ -1,3 +1,4 @@
+/* Vaporwave is the app's single, always-on theme. */
 :root {
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -16,7 +17,11 @@
 }
 
 html {
-  background: #130b2f;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(255, 79, 216, 0.28), transparent 30%),
+    radial-gradient(circle at 78% 6%, rgba(63, 246, 255, 0.26), transparent 32%),
+    linear-gradient(160deg, var(--bg-deep) 0%, #1b0f42 45%, var(--bg-mid) 100%);
+  color: var(--text-main);
 }
 
 body {
