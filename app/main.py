@@ -38,7 +38,6 @@ from app.models import (
 
 DEFAULT_RATING = 1000
 ELO_K = 24
-RANKING_VOTE_WEIGHT = 10
 POPULARITY_MAX_BOOST = 0.35
 POPULARITY_RATING_COUNT_CAP = 500
 POPULARITY_USER_RATING_MAX = 10.0
@@ -461,10 +460,10 @@ def _expected_score(rating_a: int, rating_b: int) -> float:
     return 1.0 / (1.0 + math.pow(10, (rating_b - rating_a) / 400.0))
 
 
-def _ranking_score_with_vote_weight(score: int, vote_count: int) -> int:
-    confidence = vote_count / (vote_count + RANKING_VOTE_WEIGHT)
-    weighted_score = DEFAULT_RATING + ((score - DEFAULT_RATING) * confidence)
-    return round(weighted_score)
+def _ranking_score_from_matchups(winner_count: int, vote_count: int) -> float:
+    if vote_count <= 0:
+        return 0.0
+    return round(winner_count / vote_count, 4)
 
 
 def _apply_filters(query, filters: dict[str, Any]):
@@ -1180,15 +1179,6 @@ def get_rankings(
 
     song_ids = [song.id for song in songs]
     if scope == "global":
-        rating_rows = (
-            db.query(
-                RatingScore.song_id,
-                func.round(func.avg(RatingScore.score)).label("avg_score"),
-            )
-            .filter(RatingScore.song_id.in_(song_ids))
-            .group_by(RatingScore.song_id)
-            .all()
-        )
         winner_counts = (
             db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
             .filter(PairwiseVote.winner_song_id.in_(song_ids))
@@ -1201,13 +1191,7 @@ def get_rankings(
             .group_by(PairwiseVote.loser_song_id)
             .all()
         )
-        rating_lookup = {row.song_id: int(row.avg_score or DEFAULT_RATING) for row in rating_rows}
     else:
-        rating_rows = (
-            db.query(RatingScore)
-            .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id.in_(song_ids)))
-            .all()
-        )
         winner_counts = (
             db.query(PairwiseVote.winner_song_id, func.count(PairwiseVote.id))
             .filter(and_(PairwiseVote.user_id == current_user.id, PairwiseVote.winner_song_id.in_(song_ids)))
@@ -1220,21 +1204,28 @@ def get_rankings(
             .group_by(PairwiseVote.loser_song_id)
             .all()
         )
-        rating_lookup = {row.song_id: row.score for row in rating_rows}
 
     vote_counts: dict[int, int] = {}
+    winner_lookup: dict[int, int] = {}
+    loser_lookup: dict[int, int] = {}
     for song_id, count in winner_counts:
+        winner_lookup[song_id] = count
         vote_counts[song_id] = vote_counts.get(song_id, 0) + count
     for song_id, count in loser_counts:
+        loser_lookup[song_id] = count
         vote_counts[song_id] = vote_counts.get(song_id, 0) + count
 
     rows = []
     for song in songs:
-        raw_score = rating_lookup.get(song.id, DEFAULT_RATING)
+        winner_count = winner_lookup.get(song.id, 0)
+        loser_count = loser_lookup.get(song.id, 0)
         vote_count = vote_counts.get(song.id, 0)
-        row = _serialize_song(song, _ranking_score_with_vote_weight(raw_score, vote_count))
+        if vote_count <= 0:
+            continue
+        row = _serialize_song(song, _ranking_score_from_matchups(winner_count, vote_count))
+        row["winner_count"] = winner_count
+        row["loser_count"] = loser_count
         row["vote_count"] = vote_count
-        row["raw_score"] = raw_score
         rows.append(row)
 
     rows.sort(key=lambda row: (-row["score"], row["artist"], row["title"], row["song_id"]))
