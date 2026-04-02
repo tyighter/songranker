@@ -511,15 +511,23 @@
 
     function initializeAuthWarningBanner() {
       if (!authWarningBanner || !dismissAuthWarningBtn) return;
-      const isDismissed = window.localStorage.getItem(AUTH_WARNING_DISMISSED_KEY) === "true";
+      let isDismissed = false;
+      try {
+        isDismissed = window.localStorage.getItem(AUTH_WARNING_DISMISSED_KEY) === "true";
+      } catch (_error) {
+        isDismissed = false;
+      }
       if (isDismissed) {
         authWarningBanner.hidden = true;
-        return;
       }
 
       dismissAuthWarningBtn.addEventListener("click", () => {
         authWarningBanner.hidden = true;
-        window.localStorage.setItem(AUTH_WARNING_DISMISSED_KEY, "true");
+        try {
+          window.localStorage.setItem(AUTH_WARNING_DISMISSED_KEY, "true");
+        } catch (_error) {
+          // Dismissal should still work even if storage is unavailable.
+        }
       });
     }
 
