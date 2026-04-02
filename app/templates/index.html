@@ -11,11 +11,15 @@
     <header class="top-bar">
       <h1>SongRanker</h1>
       {% if is_authenticated %}
-      <div class="top-actions">
-        <button type="button" id="open-filters-modal">Filters</button>
-        <button type="button" id="open-rankings-modal">Rankings</button>
-        <button type="button" id="open-user-modal">User info</button>
-        <button type="button" id="open-settings-modal">Settings</button>
+      <button type="button" id="toggle-header-menu" class="hamburger-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="header-menu-panel">☰</button>
+      <div class="header-menu-backdrop" id="header-menu-backdrop" hidden></div>
+      <div class="header-menu-panel" id="header-menu-panel" aria-hidden="true">
+        <div class="top-actions">
+          <button type="button" id="open-filters-modal">Filters</button>
+          <button type="button" id="open-rankings-modal">Rankings</button>
+          <button type="button" id="open-user-modal">User info</button>
+          <button type="button" id="open-settings-modal">Settings</button>
+        </div>
       </div>
       {% endif %}
     </header>
@@ -333,8 +337,11 @@
     }
 
     if (isAuthenticated) {
-      document.getElementById("open-filters-modal").addEventListener("click", () => openModal("filters-modal"));
-      document.getElementById("open-user-modal").addEventListener("click", () => openModal("user-modal"));
+      const toggleHeaderMenuBtn = document.getElementById("toggle-header-menu");
+      const headerMenuPanel = document.getElementById("header-menu-panel");
+      const headerMenuBackdrop = document.getElementById("header-menu-backdrop");
+      const openFiltersModalBtn = document.getElementById("open-filters-modal");
+      const openUserModalBtn = document.getElementById("open-user-modal");
       const openRankingsModalBtn = document.getElementById("open-rankings-modal");
       const openSettingsModalBtn = document.getElementById("open-settings-modal");
       const filtersFormEl = document.getElementById("filters-form");
@@ -348,6 +355,7 @@
       const plexLibrarySelectEl = document.getElementById("plex-library-select");
 
       openSettingsModalBtn.addEventListener("click", async () => {
+        closeHeaderMenu();
         openModal("settings-modal");
         await loadPlexSettings();
       });
@@ -374,6 +382,43 @@
       let currentPair = null;
       let currentFilters = {};
       let rankingSort = { sort_by: "rank", sort_dir: "asc" };
+
+      function closeHeaderMenu() {
+        headerMenuPanel.classList.remove("is-open");
+        headerMenuPanel.setAttribute("aria-hidden", "true");
+        headerMenuBackdrop.hidden = true;
+        toggleHeaderMenuBtn.setAttribute("aria-expanded", "false");
+        toggleHeaderMenuBtn.setAttribute("aria-label", "Open navigation menu");
+      }
+
+      function openHeaderMenu() {
+        headerMenuPanel.classList.add("is-open");
+        headerMenuPanel.setAttribute("aria-hidden", "false");
+        headerMenuBackdrop.hidden = false;
+        toggleHeaderMenuBtn.setAttribute("aria-expanded", "true");
+        toggleHeaderMenuBtn.setAttribute("aria-label", "Close navigation menu");
+      }
+
+      toggleHeaderMenuBtn.addEventListener("click", () => {
+        if (headerMenuPanel.classList.contains("is-open")) {
+          closeHeaderMenu();
+          return;
+        }
+        openHeaderMenu();
+      });
+
+      headerMenuBackdrop.addEventListener("click", closeHeaderMenu);
+      openFiltersModalBtn.addEventListener("click", () => {
+        closeHeaderMenu();
+        openModal("filters-modal");
+      });
+      openUserModalBtn.addEventListener("click", () => {
+        closeHeaderMenu();
+        openModal("user-modal");
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && headerMenuPanel.classList.contains("is-open")) closeHeaderMenu();
+      });
 
       function renderPlexLibraries(libraries, selectedSectionId) {
         const options = ['<option value="">Select one...</option>']
@@ -659,6 +704,7 @@
         rankingsFilterDecadeEl.value = poolFilterDecadeEl.value;
         rankingsFilterArtistEl.value = poolFilterArtistEl.value;
         rankingsFilterAlbumEl.value = poolFilterAlbumEl.value;
+        closeHeaderMenu();
         openModal("rankings-modal");
         await loadTopTenRankings();
       });
