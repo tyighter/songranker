@@ -337,7 +337,11 @@ button:active {
 }
 
 .album-embed-slot {
-  background: #eef2f8;
+  display: none;
+}
+
+.album-embed-slot.is-active {
+  display: block;
 }
 
 .album-embed-frame {

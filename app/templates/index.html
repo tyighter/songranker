@@ -839,6 +839,7 @@
             allow="autoplay; encrypted-media; picture-in-picture"
             loading="lazy"
           ></iframe>`;
+          embedSlotEl.classList.add("is-active");
           triggerEl.classList.add("is-hidden");
           triggerEl.dataset.youtubeEmbedded = "true";
         } catch (error) {
