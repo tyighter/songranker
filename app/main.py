@@ -36,6 +36,7 @@ from app.models import (
     User,
     UserSession,
     UserSkippedSong,
+    YouTubeLookupCache,
 )
 
 DEFAULT_RATING = 1000
@@ -689,9 +690,9 @@ def _read_json_from_url(full_url: str, *, timeout: int = 15) -> dict[str, Any]:
     return json.loads(payload or "{}")
 
 
-YOUTUBE_EMBEDDABILITY_VERIFIED = "known_embeddable"
-YOUTUBE_EMBEDDABILITY_KNOWN_NON = "known_non_embeddable"
-YOUTUBE_EMBEDDABILITY_UNKNOWN = "unknown"
+YOUTUBE_CONFIDENCE_VERIFIED = "verified_embeddable"
+YOUTUBE_CONFIDENCE_UNVERIFIED = "unverified"
+YOUTUBE_CONFIDENCE_MANUAL_OVERRIDE = "manual_override"
 
 
 class YouTubeSearchProvider:
@@ -772,7 +773,7 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
                 candidates.append(
                     {
                         "video_id": video_id,
-                        "embeddability_confidence": YOUTUBE_EMBEDDABILITY_VERIFIED,
+                        "embeddability_confidence": YOUTUBE_CONFIDENCE_VERIFIED,
                         "provider": self.name,
                     }
                 )
@@ -780,7 +781,7 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
                 candidates.append(
                     {
                         "video_id": video_id,
-                        "embeddability_confidence": YOUTUBE_EMBEDDABILITY_KNOWN_NON,
+                        "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
                         "provider": self.name,
                     }
                 )
@@ -820,37 +821,123 @@ class YouTubeHtmlSearchProvider(YouTubeSearchProvider):
         return [
             {
                 "video_id": candidate,
-                "embeddability_confidence": YOUTUBE_EMBEDDABILITY_UNKNOWN,
+                "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
                 "provider": self.name,
             }
         ]
 
 
-def _cache_key_for_youtube_lookup(title: str, artist: str) -> tuple[str, str]:
-    return ((title or "").strip().lower(), (artist or "").strip().lower())
+def _cache_key_for_youtube_lookup(title: str, artist: str) -> tuple[str, str, str]:
+    title_norm = (title or "").strip().lower()
+    artist_norm = (artist or "").strip().lower()
+    return title_norm, artist_norm, f"{title_norm}::{artist_norm}"
 
 
 def _get_cached_youtube_lookup(title: str, artist: str) -> dict[str, Any] | None:
-    cache_key = _cache_key_for_youtube_lookup(title, artist)
+    title_norm, artist_norm, query_key = _cache_key_for_youtube_lookup(title, artist)
     now = datetime.now(timezone.utc)
     with _youtube_lookup_cache_lock:
-        cached = _youtube_lookup_cache.get(cache_key)
+        cached = _youtube_lookup_cache.get((title_norm, artist_norm))
         if not cached:
             return None
         if cached["expires_at"] <= now:
-            _youtube_lookup_cache.pop(cache_key, None)
+            _youtube_lookup_cache.pop((title_norm, artist_norm), None)
             return None
         return cached
 
 
 def _set_cached_youtube_lookup(title: str, artist: str, cached_result: dict[str, Any]) -> None:
     ttl_seconds = max(30, settings.youtube_lookup_cache_ttl_seconds)
-    cache_key = _cache_key_for_youtube_lookup(title, artist)
+    title_norm, artist_norm, query_key = _cache_key_for_youtube_lookup(title, artist)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    checked_at = datetime.now(timezone.utc)
+    l1_payload = {
+        **cached_result,
+        "title_norm": title_norm,
+        "artist_norm": artist_norm,
+        "query_key": query_key,
+        "expires_at": expires_at,
+        "checked_at": checked_at,
+    }
     with _youtube_lookup_cache_lock:
-        _youtube_lookup_cache[cache_key] = {
-            **cached_result,
-            "expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
-        }
+        _youtube_lookup_cache[(title_norm, artist_norm)] = l1_payload
+
+
+def _set_persistent_youtube_lookup_cache(db: Session, title: str, artist: str, cached_result: dict[str, Any]) -> None:
+    title_norm, artist_norm, query_key = _cache_key_for_youtube_lookup(title, artist)
+    ttl_seconds = max(30, settings.youtube_lookup_cache_ttl_seconds)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    cache_row = db.query(YouTubeLookupCache).filter(YouTubeLookupCache.query_key == query_key).first()
+    if cache_row is None:
+        cache_row = YouTubeLookupCache(
+            query_key=query_key,
+            title_norm=title_norm,
+            artist_norm=artist_norm,
+            result=str(cached_result.get("result") or "error"),
+            video_id=cached_result.get("video_id"),
+            code=cached_result.get("code"),
+            message=str(cached_result.get("message") or "No YouTube video found for the requested song."),
+            source=str(cached_result.get("source") or "provider_chain"),
+            confidence=str(cached_result.get("embeddability_confidence") or YOUTUBE_CONFIDENCE_UNVERIFIED),
+            expires_at=expires_at,
+            checked_at=now,
+        )
+        db.add(cache_row)
+    else:
+        cache_row.title_norm = title_norm
+        cache_row.artist_norm = artist_norm
+        cache_row.result = str(cached_result.get("result") or "error")
+        cache_row.video_id = cached_result.get("video_id")
+        cache_row.code = cached_result.get("code")
+        cache_row.message = str(cached_result.get("message") or "No YouTube video found for the requested song.")
+        cache_row.source = str(cached_result.get("source") or "provider_chain")
+        cache_row.confidence = str(cached_result.get("embeddability_confidence") or YOUTUBE_CONFIDENCE_UNVERIFIED)
+        cache_row.expires_at = expires_at
+        cache_row.checked_at = now
+    db.commit()
+
+
+def _get_persistent_youtube_lookup_cache(db: Session, title: str, artist: str) -> dict[str, Any] | None:
+    title_norm, artist_norm, query_key = _cache_key_for_youtube_lookup(title, artist)
+    now = datetime.now(timezone.utc)
+    row = (
+        db.query(YouTubeLookupCache)
+        .filter(
+            and_(
+                YouTubeLookupCache.query_key == query_key,
+                YouTubeLookupCache.expires_at > now,
+            )
+        )
+        .first()
+    )
+    if row is None:
+        return None
+    payload = {
+        "result": row.result,
+        "video_id": row.video_id,
+        "code": row.code,
+        "message": row.message,
+        "source": row.source,
+        "provider": row.source,
+        "embeddability_confidence": row.confidence,
+        "title_norm": row.title_norm,
+        "artist_norm": row.artist_norm,
+        "query_key": row.query_key,
+        "expires_at": row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc),
+        "checked_at": row.checked_at if row.checked_at.tzinfo else row.checked_at.replace(tzinfo=timezone.utc),
+    }
+    with _youtube_lookup_cache_lock:
+        _youtube_lookup_cache[(title_norm, artist_norm)] = payload
+    return payload
+
+
+def _prune_expired_youtube_lookup_cache(db: Session) -> int:
+    now = datetime.now(timezone.utc)
+    deleted = db.query(YouTubeLookupCache).filter(YouTubeLookupCache.expires_at <= now).delete(synchronize_session=False)
+    if deleted:
+        db.commit()
+    return deleted
 
 
 def _make_youtube_provider_chain() -> list[YouTubeSearchProvider]:
@@ -861,7 +948,7 @@ def _make_youtube_provider_chain() -> list[YouTubeSearchProvider]:
     return providers
 
 
-def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
+def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str, Any]:
     query = f"{(title or '').strip()} {(artist or '').strip()}".strip()
     if not query:
         raise YouTubeLookupError(
@@ -888,6 +975,24 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
                 message=str(cached.get("message") or "No YouTube video found for the requested song."),
                 source=str(cached.get("source") or "cache"),
             )
+    elif persisted := _get_persistent_youtube_lookup_cache(db, title, artist):
+        _log_youtube_lookup(
+            "l2_cache_hit",
+            title=title,
+            artist=artist,
+            result=persisted.get("result"),
+            source=persisted.get("source"),
+            provider=persisted.get("provider"),
+            embeddability_confidence=persisted.get("embeddability_confidence"),
+        )
+        if persisted.get("result") == "ok":
+            return persisted
+        if persisted.get("result") == "error":
+            raise YouTubeLookupError(
+                code=str(persisted.get("code") or "video_not_found"),
+                message=str(persisted.get("message") or "No YouTube video found for the requested song."),
+                source=str(persisted.get("source") or "cache"),
+            )
 
     providers = _make_youtube_provider_chain()
     last_network_error: YouTubeLookupError | None = None
@@ -906,10 +1011,12 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
                     "provider": best_match.get("provider", provider.name),
                     "embeddability_confidence": best_match.get(
                         "embeddability_confidence",
-                        YOUTUBE_EMBEDDABILITY_VERIFIED,
+                        YOUTUBE_CONFIDENCE_VERIFIED,
                     ),
+                    "message": "Lookup succeeded.",
                 }
                 _set_cached_youtube_lookup(title, artist, result)
+                _set_persistent_youtube_lookup_cache(db, title, artist, result)
                 _log_youtube_lookup(
                     "lookup_success",
                     title=title,
@@ -925,17 +1032,19 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
             any_matches = provider.search(query, embeddable_only=False)
             if any_matches:
                 for candidate in any_matches:
-                    confidence = candidate.get("embeddability_confidence", YOUTUBE_EMBEDDABILITY_UNKNOWN)
-                    if confidence == YOUTUBE_EMBEDDABILITY_VERIFIED:
+                    confidence = candidate.get("embeddability_confidence", YOUTUBE_CONFIDENCE_UNVERIFIED)
+                    if confidence == YOUTUBE_CONFIDENCE_VERIFIED:
                         video_id = candidate.get("video_id")
                         result = {
                             "result": "ok",
                             "video_id": video_id,
                             "source": provider.name,
                             "provider": candidate.get("provider", provider.name),
-                            "embeddability_confidence": YOUTUBE_EMBEDDABILITY_VERIFIED,
+                            "embeddability_confidence": YOUTUBE_CONFIDENCE_VERIFIED,
+                            "message": "Lookup succeeded.",
                         }
                         _set_cached_youtube_lookup(title, artist, result)
+                        _set_persistent_youtube_lookup_cache(db, title, artist, result)
                         _log_youtube_lookup(
                             "lookup_success_from_broad_search",
                             title=title,
@@ -947,9 +1056,9 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
                             embeddability_confidence=result["embeddability_confidence"],
                         )
                         return result
-                    if confidence == YOUTUBE_EMBEDDABILITY_KNOWN_NON:
+                    if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED:
                         saw_known_non_embeddable = True
-                    elif confidence == YOUTUBE_EMBEDDABILITY_UNKNOWN and first_unknown_candidate is None:
+                    if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED and first_unknown_candidate is None:
                         first_unknown_candidate = candidate
                 _log_youtube_lookup(
                     "lookup_candidate_scan",
@@ -992,9 +1101,11 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
             "video_id": first_unknown_candidate.get("video_id"),
             "source": str(first_unknown_candidate.get("provider") or "provider_chain"),
             "provider": str(first_unknown_candidate.get("provider") or "provider_chain"),
-            "embeddability_confidence": YOUTUBE_EMBEDDABILITY_UNKNOWN,
+            "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
+            "message": "Lookup succeeded, embeddability could not be verified.",
         }
         _set_cached_youtube_lookup(title, artist, result)
+        _set_persistent_youtube_lookup_cache(db, title, artist, result)
         _log_youtube_lookup(
             "lookup_embeddability_unknown",
             title=title,
@@ -1014,9 +1125,10 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
             "message": "Only non-embeddable YouTube videos were found for the requested song.",
             "source": "provider_chain",
             "provider": "provider_chain",
-            "embeddability_confidence": YOUTUBE_EMBEDDABILITY_KNOWN_NON,
+            "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
         }
         _set_cached_youtube_lookup(title, artist, failure)
+        _set_persistent_youtube_lookup_cache(db, title, artist, failure)
         raise YouTubeLookupError(
             code=failure["code"],
             message=failure["message"],
@@ -1032,9 +1144,10 @@ def _fetch_first_youtube_video(title: str, artist: str) -> dict[str, Any]:
         "message": "No YouTube video found for the requested song.",
         "source": "provider_chain",
         "provider": "provider_chain",
-        "embeddability_confidence": "none",
+        "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
     }
     _set_cached_youtube_lookup(title, artist, failure)
+    _set_persistent_youtube_lookup_cache(db, title, artist, failure)
     raise YouTubeLookupError(code=failure["code"], message=failure["message"], source=failure["source"])
 
 
@@ -1065,6 +1178,7 @@ async def _periodic_sync_loop():
             app_settings = _get_or_create_settings(db)
             if app_settings.is_initialized:
                 _sync_tracks_from_plex(db, app_settings)
+            _prune_expired_youtube_lookup_cache(db)
         except Exception:
             db.rollback()
             logger.exception("Periodic Plex sync failed")
@@ -1415,9 +1529,10 @@ def get_first_youtube_video(
     title: str = Query(default=""),
     artist: str = Query(default=""),
     _: User = Depends(_require_current_user),
+    db: Session = Depends(get_db),
 ):
     try:
-        result = _fetch_first_youtube_video(title=title, artist=artist)
+        result = _fetch_first_youtube_video(db=db, title=title, artist=artist)
         video_id = result.get("video_id")
         if not _is_valid_youtube_video_id(video_id):
             raise HTTPException(
@@ -1426,7 +1541,7 @@ def get_first_youtube_video(
             )
         return {
             "video_id": video_id,
-            "embeddability_confidence": result.get("embeddability_confidence", YOUTUBE_EMBEDDABILITY_UNKNOWN),
+            "embeddability_confidence": result.get("embeddability_confidence", YOUTUBE_CONFIDENCE_UNVERIFIED),
             "provider": result.get("provider", result.get("source")),
         }
     except YouTubeLookupError as exc:
