@@ -523,14 +523,16 @@
             <h3 class="song-title">${song.title}</h3>
             <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
             <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
-            <button type="button" data-vote-index="${index}">Choose this song</button>
-            <button type="button" data-skip-index="${index}" class="secondary">Skip song</button>
-            <button type="button" data-hide-artist-index="${index}" class="secondary">Hide artist</button>
+            <div class="song-card-actions">
+              <button type="button" data-vote-index="${index}" class="btn-primary">Choose this song</button>
+              <button type="button" data-skip-index="${index}" class="btn-secondary-subtle">Skip song</button>
+              <button type="button" data-hide-artist-index="${index}" class="btn-secondary-subtle">Hide artist</button>
+            </div>
           </div>
         `).join("");
         pairContent.insertAdjacentHTML("beforeend", `
           <div class="pair-wide-actions">
-            <button type="button" data-skip-both class="secondary">Skip Both</button>
+            <button type="button" data-skip-both class="btn-tertiary">Skip Both</button>
           </div>
         `);
 
