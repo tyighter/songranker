@@ -146,6 +146,15 @@ button {
   font-weight: 600;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a[href]:focus-visible {
+  outline: 3px solid #8ab4ff;
+  outline-offset: 2px;
+}
+
 button.secondary {
   background: #eef3ff;
   border-color: #cedaf8;
