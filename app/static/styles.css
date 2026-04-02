@@ -20,6 +20,7 @@ main {
 
 .top-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -99,6 +100,11 @@ button.secondary {
   color: #8a4b00;
 }
 
+.filter-summary {
+  margin: 0;
+  color: #444;
+}
+
 .inline-forms {
   display: flex;
   flex-wrap: wrap;
@@ -143,6 +149,16 @@ button.secondary {
   position: relative;
 }
 
+.filter-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-modal-actions {
+  justify-content: flex-end;
+}
+
 .modal-close {
   position: absolute;
   right: 0.5rem;
@@ -154,4 +170,24 @@ button.secondary {
 
 body.modal-open {
   overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions button {
+    flex: 1;
+    margin-right: 0;
+  }
+
+  .filter-modal-actions {
+    justify-content: stretch;
+  }
+
+  .filter-modal-actions button {
+    flex: 1;
+    margin-right: 0;
+  }
 }
