@@ -39,7 +39,7 @@ from app.models import (
 
 DEFAULT_RATING = 1000
 ELO_K = 24
-POPULARITY_MAX_BOOST = 0.35
+DEFAULT_POPULARITY_WEIGHT = 0.35
 POPULARITY_RATING_COUNT_CAP = 500
 POPULARITY_USER_RATING_MAX = 10.0
 POPULARITY_COUNT_WEIGHT = 0.75
@@ -167,6 +167,12 @@ def _get_or_create_settings(db: Session) -> AppSettings:
         db.commit()
         db.refresh(app_settings)
     return app_settings
+
+
+def _clamp_popularity_weight(raw_weight: float | None) -> float:
+    if raw_weight is None:
+        return DEFAULT_POPULARITY_WEIGHT
+    return max(0.0, min(1.0, raw_weight))
 
 
 def _current_session(db: Session, request: StarletteRequest) -> UserSession | None:
@@ -426,7 +432,7 @@ def _parse_plex_rating_count(raw_value: str | None) -> int | None:
     return parsed
 
 
-def _song_selection_weight(song: Song) -> float:
+def _song_selection_weight(song: Song, popularity_weight: float) -> float:
     rating_count = song.plex_rating_count
     user_rating = song.plex_user_rating
 
@@ -441,7 +447,8 @@ def _song_selection_weight(song: Song) -> float:
         rating_component = max(0.0, min(1.0, normalized_rating))
 
     blended_signal = (count_component * POPULARITY_COUNT_WEIGHT) + (rating_component * POPULARITY_USER_RATING_WEIGHT)
-    return max(0.0001, 1.0 + (POPULARITY_MAX_BOOST * blended_signal))
+    effective_popularity_weight = _clamp_popularity_weight(popularity_weight)
+    return max(0.0001, 1.0 + (effective_popularity_weight * blended_signal))
 
 
 def _weighted_song_choice(
@@ -509,17 +516,23 @@ def _serialize_song(song: Song, score: int) -> dict[str, Any]:
 
 def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) -> dict[str, Any]:
     payload = _serialize_song(song, score)
+    popularity_weight = _clamp_popularity_weight(app_settings.popularity_weight)
     album_art_url = None
     if app_settings.plex_url and app_settings.plex_token and song.plex_rating_key:
         album_art_url = f"/api/plex/album-art/{song.plex_rating_key}"
     payload["album_art_url"] = album_art_url
     payload["plex_user_rating"] = song.plex_user_rating
     payload["plex_rating_count"] = song.plex_rating_count
-    payload["selection_weight"] = _song_selection_weight(song)
+    payload["selection_weight"] = _song_selection_weight(song, popularity_weight)
     return payload
 
 
-def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any]) -> tuple[Song, Song] | None:
+def _candidate_pair_for_user(
+    db: Session,
+    user_id: int,
+    filters: dict[str, Any],
+    popularity_weight: float,
+) -> tuple[Song, Song] | None:
     started_at = datetime.now(timezone.utc)
     skipped_song_ids = {
         row.song_id
@@ -529,7 +542,8 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
     if skipped_song_ids:
         songs_query = songs_query.filter(~Song.id.in_(skipped_song_ids))
     candidates = songs_query.order_by(Song.id.asc()).all()
-    song_rows = [(song.id, _song_selection_weight(song)) for song in candidates]
+    effective_popularity_weight = _clamp_popularity_weight(popularity_weight)
+    song_rows = [(song.id, _song_selection_weight(song, effective_popularity_weight)) for song in candidates]
     song_ids = [song_id for song_id, _ in song_rows]
 
     if len(song_ids) < 2:
@@ -594,13 +608,13 @@ def _candidate_pair_for_user(db: Session, user_id: int, filters: dict[str, Any])
         selected_pair[1]: weight_by_song_id.get(selected_pair[1]),
     }
     logger.info(
-        "Pair selected from weighted filtered pool | user_id=%s filters=%s song_count=%s pair=%s pair_weights=%s popularity_max_boost=%s elapsed_ms=%s",
+        "Pair selected from weighted filtered pool | user_id=%s filters=%s song_count=%s pair=%s pair_weights=%s popularity_weight=%s elapsed_ms=%s",
         user_id,
         filters,
         len(song_ids),
         [selected_pair[0], selected_pair[1]],
         selected_weights,
-        POPULARITY_MAX_BOOST,
+        effective_popularity_weight,
         elapsed_ms,
     )
     return songs_by_id[selected_pair[0]], songs_by_id[selected_pair[1]]
@@ -848,6 +862,7 @@ def plex_settings(db: Session = Depends(get_db)):
         "plex_url": app_settings.plex_url or "",
         "plex_token": app_settings.plex_token or "",
         "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "popularity_weight": _clamp_popularity_weight(app_settings.popularity_weight),
         "libraries": libraries,
         "status": status,
         "status_ok": error is None and bool(app_settings.plex_url and app_settings.plex_token),
@@ -858,11 +873,13 @@ def plex_settings(db: Session = Depends(get_db)):
 def save_plex_settings(
     plex_url: str = Form(...),
     plex_token: str = Form(...),
+    popularity_weight: float = Form(DEFAULT_POPULARITY_WEIGHT),
     db: Session = Depends(get_db),
 ):
     app_settings = _get_or_create_settings(db)
     app_settings.plex_url = plex_url.strip().rstrip("/")
     app_settings.plex_token = plex_token.strip()
+    app_settings.popularity_weight = _clamp_popularity_weight(popularity_weight)
     db.add(app_settings)
     db.commit()
     db.refresh(app_settings)
@@ -874,6 +891,7 @@ def save_plex_settings(
         "plex_url": app_settings.plex_url or "",
         "plex_token": app_settings.plex_token or "",
         "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "popularity_weight": _clamp_popularity_weight(app_settings.popularity_weight),
         "libraries": libraries,
         "status": error or "Connected",
         "status_ok": error is None,
@@ -1063,7 +1081,13 @@ def get_next_pair(
         filters["song_ids"] = [int(song_id.strip()) for song_id in song_ids.split(",") if song_id.strip()]
     logger.info("Received next pair request | user_id=%s filters=%s", current_user.id, filters)
 
-    pair = _candidate_pair_for_user(db=db, user_id=current_user.id, filters=filters)
+    popularity_weight = _clamp_popularity_weight(app_settings.popularity_weight)
+    pair = _candidate_pair_for_user(
+        db=db,
+        user_id=current_user.id,
+        filters=filters,
+        popularity_weight=popularity_weight,
+    )
     if pair is None:
         elapsed_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
         logger.warning(
