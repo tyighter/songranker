@@ -332,6 +332,14 @@ button:active {
 
 .pair-wide-actions {
   grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-2);
+}
+
+.pair-wide-actions button {
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .song-card {
