@@ -273,6 +273,57 @@ button:active {
   margin-bottom: 0.75rem;
 }
 
+.album-media-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.album-art-trigger {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.album-art-trigger:hover .album-art,
+.album-art-trigger:focus-visible .album-art {
+  border-color: #8ab4ff;
+  box-shadow: 0 0 0 3px rgba(138, 180, 255, 0.35);
+}
+
+.album-art-trigger.is-hidden {
+  display: none;
+}
+
+.album-embed-slot,
+.album-embed-frame {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+}
+
+.album-embed-slot {
+  background: #eef2f8;
+}
+
+.album-embed-frame {
+  border: 1px solid #d2dae6;
+  background: #000;
+}
+
+.album-embed-message {
+  min-height: 1.2rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #526173;
+}
+
 .song-title {
   margin: 0 0 0.45rem;
   font-size: 1.45rem;
