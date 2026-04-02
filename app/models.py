@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func, select
+import secrets
+
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -96,11 +98,10 @@ def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     if connection.dialect.name != "sqlite":
         return
 
-    # Recompute on each insert instead of caching per connection.
-    # A cached counter can drift when other DB connections insert rows,
-    # which can lead to duplicate primary keys.
-    next_id = connection.execute(select(func.coalesce(func.max(target.__table__.c.id), 0) + 1)).scalar_one()
-    target.id = int(next_id)
+    # Avoid max(id)+1 allocation for SQLite: concurrent transactions can
+    # compute the same value and collide on commit/flush.
+    # Use a random signed 63-bit integer so IDs remain valid BIGINT values.
+    target.id = secrets.randbits(63)
 
 
 for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot):
