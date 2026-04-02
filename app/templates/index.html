@@ -299,20 +299,57 @@
     const openSigninModalBtn = document.getElementById("open-signin-modal");
     const toggleCreateUserBtn = document.getElementById("toggle-create-user");
     const createUserSection = document.getElementById("create-user-section");
-    let lastFocusedElement = null;
+    const overlayStack = [];
+    const openerByOverlayId = new Map();
+    let activeModalId = null;
+    let headerMenuPanelEl = null;
+    let closeHeaderMenu = () => {};
+
+    function rememberOverlayOpener(overlayId) {
+      if (document.activeElement && typeof document.activeElement.focus === "function") {
+        openerByOverlayId.set(overlayId, document.activeElement);
+      }
+    }
+
+    function restoreOverlayOpener(overlayId) {
+      const opener = openerByOverlayId.get(overlayId);
+      if (opener && document.contains(opener) && typeof opener.focus === "function") opener.focus();
+      openerByOverlayId.delete(overlayId);
+    }
+
+    function markOverlayOpen(overlayId) {
+      const existingIndex = overlayStack.indexOf(overlayId);
+      if (existingIndex >= 0) overlayStack.splice(existingIndex, 1);
+      overlayStack.push(overlayId);
+      if (overlayId !== "header-menu-panel") activeModalId = overlayId;
+    }
+
+    function markOverlayClosed(overlayId) {
+      const existingIndex = overlayStack.indexOf(overlayId);
+      if (existingIndex >= 0) overlayStack.splice(existingIndex, 1);
+      if (overlayId === activeModalId) {
+        const newestModalId = [...overlayStack].reverse().find((id) => id !== "header-menu-panel") || null;
+        activeModalId = newestModalId;
+      }
+    }
+
+    function getTopOverlayId() {
+      return overlayStack.length ? overlayStack[overlayStack.length - 1] : null;
+    }
 
     function getFocusableElements(modal) {
       if (!modal) return [];
       return Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
-        .filter((el) => !el.disabled && el.getAttribute("aria-hidden") !== "true");
+        .filter((el) => !el.disabled && el.getAttribute("aria-hidden") !== "true" && el.offsetParent !== null);
     }
 
     function openModal(modalId) {
       const modal = document.getElementById(modalId);
       if (!modal) return;
-      lastFocusedElement = document.activeElement;
+      rememberOverlayOpener(modalId);
       modal.hidden = false;
       modal.setAttribute("aria-hidden", "false");
+      markOverlayOpen(modalId);
       document.body.classList.add("modal-open");
       const focusable = getFocusableElements(modal);
       if (focusable.length) focusable[0].focus();
@@ -323,10 +360,11 @@
       if (!modal) return;
       modal.hidden = true;
       modal.setAttribute("aria-hidden", "true");
-      if (!Array.from(document.querySelectorAll(".modal-backdrop")).some((el) => !el.hidden)) {
+      markOverlayClosed(modalId);
+      if (!Array.from(document.querySelectorAll(".modal-backdrop")).some((el) => !el.hidden) && !overlayStack.includes("header-menu-panel")) {
         document.body.classList.remove("modal-open");
       }
-      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") lastFocusedElement.focus();
+      restoreOverlayOpener(modalId);
     }
 
     function openSigninModal() { openModal("signin-modal"); }
@@ -340,6 +378,39 @@
       modal.addEventListener("click", (event) => {
         if (event.target === modal) closeModal(modal.id);
       });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      const topOverlayId = getTopOverlayId();
+      if (!topOverlayId) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (topOverlayId === "header-menu-panel") closeHeaderMenu();
+        else closeModal(topOverlayId);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusContainer = topOverlayId === "header-menu-panel" ? headerMenuPanelEl : document.getElementById(topOverlayId);
+      const focusable = getFocusableElements(focusContainer);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!focusContainer.contains(active)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     });
 
     if (openSigninModalBtn) openSigninModalBtn.addEventListener("click", openSigninModal);
@@ -360,6 +431,7 @@
       const toggleHeaderMenuBtn = document.getElementById("toggle-header-menu");
       const headerMenuPanel = document.getElementById("header-menu-panel");
       const headerMenuBackdrop = document.getElementById("header-menu-backdrop");
+      headerMenuPanelEl = headerMenuPanel;
       const openFiltersModalBtn = document.getElementById("open-filters-modal");
       const openUserModalBtn = document.getElementById("open-user-modal");
       const openRankingsModalBtn = document.getElementById("open-rankings-modal");
@@ -404,20 +476,31 @@
       let currentFilters = {};
       let rankingSort = { sort_by: "rank", sort_dir: "asc" };
 
-      function closeHeaderMenu() {
+      closeHeaderMenu = function closeHeaderMenuImpl() {
+        if (!headerMenuPanel.classList.contains("is-open")) return;
         headerMenuPanel.classList.remove("is-open");
         headerMenuPanel.setAttribute("aria-hidden", "true");
         headerMenuBackdrop.hidden = true;
         toggleHeaderMenuBtn.setAttribute("aria-expanded", "false");
         toggleHeaderMenuBtn.setAttribute("aria-label", "Open navigation menu");
-      }
+        markOverlayClosed("header-menu-panel");
+        if (!Array.from(document.querySelectorAll(".modal-backdrop")).some((el) => !el.hidden)) {
+          document.body.classList.remove("modal-open");
+        }
+        restoreOverlayOpener("header-menu-panel");
+      };
 
       function openHeaderMenu() {
+        rememberOverlayOpener("header-menu-panel");
         headerMenuPanel.classList.add("is-open");
         headerMenuPanel.setAttribute("aria-hidden", "false");
         headerMenuBackdrop.hidden = false;
         toggleHeaderMenuBtn.setAttribute("aria-expanded", "true");
         toggleHeaderMenuBtn.setAttribute("aria-label", "Close navigation menu");
+        markOverlayOpen("header-menu-panel");
+        document.body.classList.add("modal-open");
+        const focusable = getFocusableElements(headerMenuPanel);
+        if (focusable.length) focusable[0].focus();
       }
 
       toggleHeaderMenuBtn.addEventListener("click", () => {
@@ -436,9 +519,6 @@
       openUserModalBtn.addEventListener("click", () => {
         closeHeaderMenu();
         openModal("user-modal");
-      });
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && headerMenuPanel.classList.contains("is-open")) closeHeaderMenu();
       });
 
       function renderPlexLibraries(libraries, selectedSectionId) {
