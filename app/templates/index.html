@@ -25,8 +25,10 @@
       {% endif %}
     </header>
 
-    <p>App bound to {{ app_host }}:{{ app_port }}</p>
-    <p class="warning">{{ notice }}</p>
+    <div class="warning warning-dismissible" id="auth-warning-banner">
+      <p>{{ notice }}</p>
+      <button type="button" class="btn-ghost warning-dismiss-btn" id="dismiss-auth-warning" aria-label="Dismiss auth warning">Dismiss</button>
+    </div>
 
     {% if not is_authenticated %}
     <section class="panel">
@@ -191,6 +193,7 @@
       <button type="button" class="modal-close btn-ghost" data-close-modal="settings-modal" aria-label="Close settings dialog">×</button>
       <h2 id="settings-modal-title">Settings</h2>
       <p>Plex settings and sync controls.</p>
+      <p class="helper-text">App bound to {{ app_host }}:{{ app_port }}.</p>
       <form id="plex-credentials-form">
         <h3>Plex connection</h3>
         <label>Plex URL <input type="url" id="plex-url-input" name="plex_url" required /></label>
@@ -365,6 +368,9 @@
     let activeModalId = null;
     let headerMenuPanelEl = null;
     let closeHeaderMenu = () => {};
+    const authWarningBanner = document.getElementById("auth-warning-banner");
+    const dismissAuthWarningBtn = document.getElementById("dismiss-auth-warning");
+    const AUTH_WARNING_DISMISSED_KEY = "songranker_auth_warning_dismissed";
 
     function rememberOverlayOpener(overlayId) {
       if (document.activeElement && typeof document.activeElement.focus === "function") {
@@ -487,6 +493,22 @@
     if (!isAuthenticated && signinModal && !signinModal.hidden) {
       openSigninModal();
     }
+
+    function initializeAuthWarningBanner() {
+      if (!authWarningBanner || !dismissAuthWarningBtn) return;
+      const isDismissed = window.localStorage.getItem(AUTH_WARNING_DISMISSED_KEY) === "true";
+      if (isDismissed) {
+        authWarningBanner.hidden = true;
+        return;
+      }
+
+      dismissAuthWarningBtn.addEventListener("click", () => {
+        authWarningBanner.hidden = true;
+        window.localStorage.setItem(AUTH_WARNING_DISMISSED_KEY, "true");
+      });
+    }
+
+    initializeAuthWarningBanner();
 
     if (isAuthenticated) {
       const toggleHeaderMenuBtn = document.getElementById("toggle-header-menu");
