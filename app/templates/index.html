@@ -664,35 +664,93 @@
         await Promise.all([loadNextPair(), loadSkippedSongs()]);
       }
 
-      async function loadSkippedSongs() {
-        const response = await fetch("/api/skips");
-        const payload = await response.json().catch(() => ({ rows: [] }));
-        skippedBodyEl.innerHTML = (payload.rows || []).map((row) => `
+      function renderTableState(tableBodyEl, { message, className = "", colspan }) {
+        tableBodyEl.innerHTML = `
           <tr>
-            <td><input type="checkbox" data-skipped-song-id="${row.song_id}" /></td>
-            <td>${row.artist}</td>
-            <td>${row.album || ""}</td>
-            <td>${row.year || ""}</td>
-            <td>${row.title}</td>
-            <td>${new Date(row.skipped_at).toLocaleString()}</td>
+            <td colspan="${colspan}" class="table-state ${className}">${message}</td>
           </tr>
-        `).join("");
+        `;
+      }
+
+      function renderLoadingRow(tableBodyEl, colspan) {
+        renderTableState(tableBodyEl, { message: "Loading...", colspan });
+      }
+
+      function renderEmptyRow(tableBodyEl, colspan) {
+        renderTableState(tableBodyEl, { message: "No results for current filters", className: "table-state-empty", colspan });
+      }
+
+      function renderErrorRow(tableBodyEl, colspan) {
+        renderTableState(tableBodyEl, { message: "Could not load data", className: "table-state-error", colspan });
+      }
+
+      async function loadSkippedSongs() {
+        statusEl.textContent = "Loading skipped songs...";
+        renderLoadingRow(skippedBodyEl, 6);
+        try {
+          const response = await fetch("/api/skips");
+          const payload = await response.json().catch(() => ({ rows: [] }));
+          if (!response.ok) {
+            statusEl.textContent = payload.detail || "Unable to load skipped songs.";
+            renderErrorRow(skippedBodyEl, 6);
+            return;
+          }
+          const rows = payload.rows || [];
+          if (!rows.length) {
+            renderEmptyRow(skippedBodyEl, 6);
+            statusEl.textContent = "No skipped songs for current filters.";
+            return;
+          }
+          skippedBodyEl.innerHTML = rows.map((row) => `
+            <tr>
+              <td><input type="checkbox" data-skipped-song-id="${row.song_id}" /></td>
+              <td>${row.artist}</td>
+              <td>${row.album || ""}</td>
+              <td>${row.year || ""}</td>
+              <td>${row.title}</td>
+              <td>${new Date(row.skipped_at).toLocaleString()}</td>
+            </tr>
+          `).join("");
+          statusEl.textContent = "Skipped songs loaded.";
+        } catch (_error) {
+          statusEl.textContent = "Unable to load skipped songs.";
+          renderErrorRow(skippedBodyEl, 6);
+        }
       }
 
       async function loadRankings() {
+        statusEl.textContent = "Loading rankings...";
+        renderLoadingRow(rankingsBodyEl, 6);
         const params = { ...collectFilters(), ...rankingSort, page: 1, page_size: 100 };
-        const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
-        const payload = await response.json();
-        rankingsBodyEl.innerHTML = (payload.rows || []).map((row) => `
-          <tr>
-            <td>${row.rank}</td>
-            <td>${row.score}</td>
-            <td>${row.artist}</td>
-            <td>${row.album || ""}</td>
-            <td>${row.year || ""}</td>
-            <td>${row.title}</td>
-          </tr>
-        `).join("");
+        try {
+          const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
+          const payload = await response.json().catch(() => ({ rows: [] }));
+          if (!response.ok) {
+            statusEl.textContent = payload.detail || "Unable to load rankings.";
+            renderErrorRow(rankingsBodyEl, 6);
+            return;
+          }
+          const rows = payload.rows || [];
+          if (!rows.length) {
+            renderEmptyRow(rankingsBodyEl, 6);
+            statusEl.textContent = "No rankings for current filters.";
+            return;
+          }
+          rankingsBodyEl.innerHTML = rows.map((row) => `
+            <tr>
+              <td>${row.rank}</td>
+              <td>${row.score}</td>
+              <td>${row.artist}</td>
+              <td>${row.album || ""}</td>
+              <td>${row.year || ""}</td>
+              <td>${row.title}</td>
+            </tr>
+          `).join("");
+          statusEl.textContent = "Rankings updated.";
+        } catch (_error) {
+          statusEl.textContent = "Unable to load rankings.";
+          renderErrorRow(rankingsBodyEl, 6);
+        }
       }
 
       function renderTopTenRows(rows, tableBodyEl) {
@@ -711,23 +769,37 @@
       async function loadTopTenRankings() {
         const modalFilters = collectFiltersFromInputs(rankingsFilterDecadeEl, rankingsFilterArtistEl, rankingsFilterAlbumEl);
         rankingsModalStatusEl.textContent = "Loading top ten rankings...";
+        renderLoadingRow(personalTopTenBodyEl, 6);
+        renderLoadingRow(globalTopTenBodyEl, 6);
         const personalParams = paramsFromObject({ ...modalFilters, scope: "personal", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
         const globalParams = paramsFromObject({ ...modalFilters, scope: "global", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
-        const [personalResponse, globalResponse] = await Promise.all([
-          fetch(`/api/rankings?${personalParams}`),
-          fetch(`/api/rankings?${globalParams}`),
-        ]);
-        const personalPayload = await personalResponse.json().catch(() => ({ rows: [] }));
-        const globalPayload = await globalResponse.json().catch(() => ({ rows: [] }));
+        try {
+          const [personalResponse, globalResponse] = await Promise.all([
+            fetch(`/api/rankings?${personalParams}`),
+            fetch(`/api/rankings?${globalParams}`),
+          ]);
+          const personalPayload = await personalResponse.json().catch(() => ({ rows: [] }));
+          const globalPayload = await globalResponse.json().catch(() => ({ rows: [] }));
 
-        if (!personalResponse.ok || !globalResponse.ok) {
-          rankingsModalStatusEl.textContent = personalPayload.detail || globalPayload.detail || "Failed to load top ten rankings.";
-          return;
+          if (!personalResponse.ok || !globalResponse.ok) {
+            rankingsModalStatusEl.textContent = personalPayload.detail || globalPayload.detail || "Failed to load top ten rankings.";
+            renderErrorRow(personalTopTenBodyEl, 6);
+            renderErrorRow(globalTopTenBodyEl, 6);
+            return;
+          }
+
+          const personalRows = personalPayload.rows || [];
+          const globalRows = globalPayload.rows || [];
+          if (!personalRows.length) renderEmptyRow(personalTopTenBodyEl, 6);
+          else renderTopTenRows(personalRows, personalTopTenBodyEl);
+          if (!globalRows.length) renderEmptyRow(globalTopTenBodyEl, 6);
+          else renderTopTenRows(globalRows, globalTopTenBodyEl);
+          rankingsModalStatusEl.textContent = "Top ten rankings updated.";
+        } catch (_error) {
+          rankingsModalStatusEl.textContent = "Failed to load top ten rankings.";
+          renderErrorRow(personalTopTenBodyEl, 6);
+          renderErrorRow(globalTopTenBodyEl, 6);
         }
-
-        renderTopTenRows(personalPayload.rows, personalTopTenBodyEl);
-        renderTopTenRows(globalPayload.rows, globalTopTenBodyEl);
-        rankingsModalStatusEl.textContent = "Top ten rankings updated.";
       }
 
       function collectHistoryFilters() {
@@ -743,16 +815,35 @@
       }
 
       async function loadHistory() {
-        const response = await fetch(`/api/history?${paramsFromObject(collectHistoryFilters())}`);
-        const payload = await response.json();
-        historyBodyEl.innerHTML = (payload.rows || []).map((row) => `
-          <tr>
-            <td>${row.winner.title} — ${row.winner.artist}</td>
-            <td>${row.loser.title} — ${row.loser.artist}</td>
-            <td>${new Date(row.timestamp).toLocaleString()}</td>
-            <td><code>${JSON.stringify(row.context)}</code></td>
-          </tr>
-        `).join("");
+        statusEl.textContent = "Loading history...";
+        renderLoadingRow(historyBodyEl, 4);
+        try {
+          const response = await fetch(`/api/history?${paramsFromObject(collectHistoryFilters())}`);
+          const payload = await response.json().catch(() => ({ rows: [] }));
+          if (!response.ok) {
+            statusEl.textContent = payload.detail || "Unable to load history.";
+            renderErrorRow(historyBodyEl, 4);
+            return;
+          }
+          const rows = payload.rows || [];
+          if (!rows.length) {
+            statusEl.textContent = "No history for current filters.";
+            renderEmptyRow(historyBodyEl, 4);
+            return;
+          }
+          historyBodyEl.innerHTML = rows.map((row) => `
+            <tr>
+              <td>${row.winner.title} — ${row.winner.artist}</td>
+              <td>${row.loser.title} — ${row.loser.artist}</td>
+              <td>${new Date(row.timestamp).toLocaleString()}</td>
+              <td><code>${JSON.stringify(row.context)}</code></td>
+            </tr>
+          `).join("");
+          statusEl.textContent = "History loaded.";
+        } catch (_error) {
+          statusEl.textContent = "Unable to load history.";
+          renderErrorRow(historyBodyEl, 4);
+        }
       }
 
       document.getElementById("load-rankings").addEventListener("click", loadRankings);

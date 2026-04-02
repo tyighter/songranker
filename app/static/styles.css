@@ -107,6 +107,23 @@ th, td {
   vertical-align: top;
 }
 
+.table-state {
+  text-align: center;
+  color: #5b6878;
+  background: #f8fafd;
+  font-style: italic;
+}
+
+.table-state-empty {
+  color: #5b6878;
+  background: #f6f9ff;
+}
+
+.table-state-error {
+  color: #8b2d2d;
+  background: #fff1f1;
+}
+
 th button {
   margin: 0;
   padding: 0.3rem 0.4rem;
