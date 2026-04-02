@@ -1,4 +1,4 @@
-body {
+:root {
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --button-height: 2.5rem;
@@ -13,6 +13,13 @@ body {
   --neon-cyan: #3ff6ff;
   --neon-purple: #9e5dff;
   --danger: #ff628f;
+}
+
+html {
+  background: #130b2f;
+}
+
+body {
   font-family: "Trebuchet MS", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   margin: 0;
   padding: 2rem 1.25rem 2.5rem;
@@ -34,8 +41,10 @@ body::before {
   z-index: -2;
   background: repeating-linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.08) 0 1px,
-    transparent 1px 4px
+    rgba(255, 255, 255, 0.08) 0,
+    rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px,
+    transparent 4px
   );
   opacity: 0.35;
 }
