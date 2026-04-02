@@ -795,14 +795,29 @@ def plex_album_art(
     if not app_settings.plex_url or not app_settings.plex_token:
         raise HTTPException(status_code=400, detail="Plex settings are incomplete")
 
-    request = Request(
-        f"{app_settings.plex_url.rstrip('/')}/library/metadata/{rating_key}/thumb"
-        f"?{urlencode({'X-Plex-Token': app_settings.plex_token})}"
-    )
     try:
+        metadata_root = _plex_get_xml(app_settings.plex_url, app_settings.plex_token, f"/library/metadata/{rating_key}")
+        track = metadata_root.find("Track")
+        if track is None:
+            raise HTTPException(status_code=404, detail="Track metadata was not found in Plex")
+
+        thumb_path = (
+            track.attrib.get("parentThumb")
+            or track.attrib.get("thumb")
+            or track.attrib.get("grandparentThumb")
+        )
+        if not thumb_path:
+            raise HTTPException(status_code=404, detail="No album art is available for this track")
+
+        request = Request(
+            f"{app_settings.plex_url.rstrip('/')}{thumb_path}"
+            f"?{urlencode({'X-Plex-Token': app_settings.plex_token})}"
+        )
         with urlopen(request, timeout=20) as plex_response:
             payload = plex_response.read()
             media_type = plex_response.headers.get("Content-Type", "image/jpeg")
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Album art request failed for rating_key=%s", rating_key)
         raise HTTPException(status_code=502, detail="Unable to fetch album art from Plex")
