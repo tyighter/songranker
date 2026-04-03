@@ -458,6 +458,17 @@ button:active {
   color: var(--text-muted);
 }
 
+.youtube-modal-player-slot {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto 0.75rem;
+}
+
+.youtube-modal-player-slot .album-embed-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
 .song-title {
   margin: 0 0 0.45rem;
   font-size: 1.45rem;

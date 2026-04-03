@@ -421,6 +421,16 @@
       </details>
     </div>
   </div>
+
+  <div class="modal-backdrop" id="youtube-modal" aria-hidden="true" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="youtube-modal-title">
+      <button type="button" class="modal-close btn-ghost" data-close-modal="youtube-modal" aria-label="Close YouTube player dialog">×</button>
+      <h2 id="youtube-modal-title">Play on YouTube</h2>
+      <p id="youtube-modal-song-meta" class="song-meta"></p>
+      <div class="youtube-modal-player-slot" id="youtube-modal-player-slot"></div>
+      <p id="youtube-modal-status" class="album-embed-message" aria-live="polite"></p>
+    </div>
+  </div>
   {% endif %}
 
   <div class="modal-backdrop" id="signin-modal" aria-hidden="true" {% if is_authenticated %}hidden{% endif %}>
@@ -530,6 +540,15 @@
       if (!modal) return;
       modal.hidden = true;
       modal.setAttribute("aria-hidden", "true");
+      if (modalId === "youtube-modal") {
+        const playerSlotEl = document.getElementById("youtube-modal-player-slot");
+        const statusEl = document.getElementById("youtube-modal-status");
+        if (playerSlotEl) playerSlotEl.innerHTML = "";
+        if (statusEl) {
+          statusEl.textContent = "";
+          statusEl.className = "album-embed-message";
+        }
+      }
       markOverlayClosed(modalId);
       if (!Array.from(document.querySelectorAll(".modal-backdrop")).some((el) => !el.hidden) && !overlayStack.includes("header-menu-panel")) {
         document.body.classList.remove("modal-open");
@@ -690,6 +709,9 @@
       const songDetailsPlexEl = document.getElementById("song-details-plex");
       const songDetailsDiagnosticsEl = document.getElementById("song-details-diagnostics");
       const songDetailsJsonEl = document.getElementById("song-details-json");
+      const youtubeModalSongMetaEl = document.getElementById("youtube-modal-song-meta");
+      const youtubeModalPlayerSlotEl = document.getElementById("youtube-modal-player-slot");
+      const youtubeModalStatusEl = document.getElementById("youtube-modal-status");
 
       let currentPair = null;
       let currentFilters = {};
@@ -873,8 +895,6 @@
               >
                 <img class="album-art" src="${song.album_art_url || '/static/placeholder-album.svg'}" alt="Album art for ${song.title}" onerror="this.src='/static/placeholder-album.svg';" />
               </button>
-              <div class="album-embed-slot" data-youtube-embed-slot></div>
-              <p class="album-embed-message" data-youtube-status aria-live="polite"></p>
             </div>
             <h3 class="song-title">${song.title}</h3>
             <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
@@ -930,17 +950,18 @@
       }
 
       async function embedFirstYouTubeVideo(triggerEl) {
-        if (!triggerEl || triggerEl.dataset.youtubeEmbedded === "true" || triggerEl.dataset.youtubeLoading === "true") return;
-        const cardEl = triggerEl.closest(".album-media-shell");
-        const embedSlotEl = cardEl ? cardEl.querySelector("[data-youtube-embed-slot]") : null;
-        const embedStatusEl = cardEl ? cardEl.querySelector("[data-youtube-status]") : null;
-        if (!cardEl || !embedSlotEl || !embedStatusEl) return;
+        if (!triggerEl || triggerEl.dataset.youtubeLoading === "true") return;
+        if (!youtubeModalSongMetaEl || !youtubeModalPlayerSlotEl || !youtubeModalStatusEl) return;
 
         const title = triggerEl.dataset.songTitle || "";
         const artist = triggerEl.dataset.songArtist || "";
         const fallbackSearchUrl = buildYouTubeSearchUrl(title, artist);
         triggerEl.dataset.youtubeLoading = "true";
-        embedStatusEl.textContent = "";
+        youtubeModalSongMetaEl.textContent = `${title || "Unknown title"} — ${artist || "Unknown artist"}`;
+        youtubeModalPlayerSlotEl.innerHTML = "";
+        youtubeModalStatusEl.textContent = "";
+        youtubeModalStatusEl.className = "album-embed-message";
+        openModal("youtube-modal");
         try {
           const params = paramsFromObject({ title, artist });
           const response = await fetch(`/api/youtube/first?${params}`);
@@ -949,15 +970,15 @@
             const detailMessage = payload?.detail?.message || payload?.detail || "No playable video found.";
             const detailCode = payload?.detail?.code || "";
             if (detailCode === "video_not_found" || detailCode === "video_not_embeddable" || detailCode === "video_embeddability_unverified") {
-              renderYouTubeFallbackStatus(embedStatusEl, detailMessage, fallbackSearchUrl);
+              renderYouTubeFallbackStatus(youtubeModalStatusEl, detailMessage, fallbackSearchUrl);
             } else {
-              embedStatusEl.textContent = detailMessage;
+              youtubeModalStatusEl.textContent = detailMessage;
             }
             console.error("[SongRanker][youtube] lookup_failed", { title, artist, fallbackSearchUrl, payload, status: response.status });
             return;
           }
 
-          embedSlotEl.innerHTML = `<iframe
+          youtubeModalPlayerSlotEl.innerHTML = `<iframe
             class="album-embed-frame"
             src="https://www.youtube.com/embed/${payload.video_id}?autoplay=1"
             title="YouTube player for ${escapeHtml(title)} by ${escapeHtml(artist)}"
@@ -966,11 +987,8 @@
             allow="autoplay; encrypted-media; picture-in-picture"
             loading="lazy"
           ></iframe>`;
-          embedSlotEl.classList.add("is-active");
-          triggerEl.classList.add("is-hidden");
-          triggerEl.dataset.youtubeEmbedded = "true";
         } catch (error) {
-          embedStatusEl.textContent = "Unable to load YouTube video right now.";
+          youtubeModalStatusEl.textContent = "Unable to load YouTube video right now.";
           console.error("[SongRanker][youtube] lookup_error", { title, artist, error: error?.message || String(error), fallbackSearchUrl });
         } finally {
           delete triggerEl.dataset.youtubeLoading;
