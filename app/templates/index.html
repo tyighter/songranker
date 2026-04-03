@@ -704,7 +704,20 @@
       }
 
       function renderPlexStatus(payload) {
-        setStatusMessage(plexConnectionStatusEl, payload.status || "Status unavailable", "status-info");
+        const fallback = payload.status || "Status unavailable";
+        if (payload.connection_error) {
+          setStatusMessage(plexConnectionStatusEl, payload.connection_error, "status-error");
+          return;
+        }
+        if (payload.connection_status === "connected" || payload.status_ok) {
+          setStatusMessage(plexConnectionStatusEl, "Connected", "status-success");
+          return;
+        }
+        if (payload.connection_status === "not_configured") {
+          setStatusMessage(plexConnectionStatusEl, "Not configured", "status-info");
+          return;
+        }
+        setStatusMessage(plexConnectionStatusEl, fallback, "status-info");
       }
 
       function setStatusMessage(el, message, variant = "status-info") {
@@ -725,7 +738,7 @@
 
       async function loadPlexSettings() {
         setStatusMessage(settingsStatusEl, "Loading Plex settings...", "status-info");
-        const response = await fetch("/api/plex/settings");
+        const response = await fetch("/api/settings/plex");
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           setStatusMessage(settingsStatusEl, payload.detail || "Unable to load Plex settings.", "status-error");
@@ -1326,9 +1339,15 @@
       plexCredentialsFormEl.addEventListener("submit", async (event) => {
         event.preventDefault();
         setStatusMessage(settingsStatusEl, "Saving Plex settings...", "status-info");
-        const formData = new FormData(plexCredentialsFormEl);
-        formData.set("popularity_weight", String(normalizedPopularityWeight(popularityWeightInputEl.value)));
-        const response = await fetch("/api/plex/settings", { method: "POST", body: formData });
+        const response = await fetch("/api/settings/plex", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            plex_url: plexUrlInputEl.value,
+            plex_token: plexTokenInputEl.value,
+            popularity_weight: normalizedPopularityWeight(popularityWeightInputEl.value),
+          }),
+        });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           setStatusMessage(settingsStatusEl, payload.detail || "Failed to save Plex settings.", "status-error");
@@ -1349,16 +1368,19 @@
       plexLibraryFormEl.addEventListener("submit", async (event) => {
         event.preventDefault();
         setStatusMessage(settingsStatusEl, "Saving selected library...", "status-info");
-        const formData = new FormData(plexLibraryFormEl);
-        const response = await fetch("/api/plex/library", { method: "POST", body: formData });
+        const response = await fetch("/api/settings/library", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            plex_music_section_id: plexLibrarySelectEl.value,
+          }),
+        });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           setStatusMessage(settingsStatusEl, payload.detail || "Failed to save library selection.", "status-error");
           return;
         }
-
-        renderPlexLibraries(payload.libraries, payload.plex_music_section_id || "");
-        renderPlexStatus(payload);
+        await loadPlexSettings();
         setStatusMessage(settingsStatusEl, "Library selection saved.", "status-success");
       });
 

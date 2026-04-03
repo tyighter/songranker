@@ -118,6 +118,14 @@ By default, `docker-compose.yml` runs a single container and stores SQLite data 
   - Applies an Elo update to global per-user song ratings, records vote history, and stores rating snapshots for the vote.
 - `POST /api/plex/resync`
   - Manually refreshes cached song metadata from Plex so ranking can continue even when Plex is temporarily unavailable.
+- `GET /api/settings/plex`
+  - Returns the authenticated user's Plex connection settings payload, including `popularity_weight`, connection status, and available libraries.
+- `POST /api/settings/plex`
+  - JSON body: `plex_url`, `plex_token`, and optional `popularity_weight`.
+  - Saves Plex connection settings and returns the normalized settings payload used by JSON clients.
+- `POST /api/settings/library`
+  - JSON body: `plex_music_section_id`.
+  - Persists the selected Plex music library section.
 
 A periodic background job also attempts Plex resync hourly once setup is complete.
 
