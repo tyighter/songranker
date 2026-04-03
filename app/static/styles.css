@@ -321,6 +321,16 @@ button:hover,
   border-color: #ffb0c9;
 }
 
+.btn-icon {
+  --btn-height: 2rem;
+  --btn-padding-x: 0.55rem;
+  --btn-gap: 0;
+  min-width: 2rem;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .btn-secondary:active,
 .btn-ghost:active,
 .btn-danger:active,
@@ -680,6 +690,40 @@ button:active {
   font-size: 1.5rem;
   line-height: 1;
   padding: 0.25rem 0.5rem;
+}
+
+.song-details-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) 1fr;
+  gap: 0.4rem 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.song-details-key {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.song-details-value {
+  overflow-wrap: anywhere;
+}
+
+.song-details-raw {
+  margin-top: 0.8rem;
+}
+
+.song-details-json {
+  margin: 0.55rem 0 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 0.7rem;
+  border: 1px solid rgba(158, 93, 255, 0.45);
+  border-radius: 10px;
+  background: rgba(14, 7, 36, 0.9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 body.modal-open {
