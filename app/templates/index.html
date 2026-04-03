@@ -25,7 +25,7 @@
       {% endif %}
     </header>
 
-    <div class="warning warning-dismissible" id="auth-warning-banner">
+    <div class="warning warning-dismissible {{ notice_class or 'status-info' }}" id="auth-warning-banner">
       <p>{{ notice }}</p>
       <button type="button" class="btn-ghost warning-dismiss-btn" id="dismiss-auth-warning" aria-label="Dismiss auth warning">Dismiss</button>
     </div>
@@ -34,6 +34,12 @@
     <section class="panel">
       <h2>Sign in required</h2>
       <p>Sign in to rank songs and view your rating history.</p>
+      <form method="get" action="/api/auth/google/start">
+        <button type="submit" class="btn-primary">Continue with Google</button>
+      </form>
+      {% if local_signin_enabled %}
+      <p class="helper-text">Local username/password sign-in is still available as a fallback.</p>
+      {% endif %}
       <button type="button" id="open-signin-modal" class="btn-primary">Sign in / create account</button>
     </section>
     {% endif %}
@@ -83,6 +89,22 @@
                 <button type="submit" class="btn-secondary">Sign out</button>
               </form>
               <button id="reset-personal-rankings-btn" type="button" class="btn-danger">Reset personal rankings</button>
+            </div>
+            <h3>Linked accounts</h3>
+            <p class="helper-text">Connect external logins while keeping a fallback sign-in method.</p>
+            <p>Google: <strong>{% if google_identity_linked %}Linked{% else %}Not linked{% endif %}</strong></p>
+            <div class="inline-forms">
+              {% if not google_identity_linked %}
+              <form method="get" action="/api/auth/google/start">
+                <button type="submit" class="btn-primary">Link Google account</button>
+              </form>
+              {% else %}
+              <form method="post" action="/api/auth/unlink-provider" id="unlink-google-form">
+                <input type="hidden" name="provider" value="google" />
+                <label><input type="checkbox" id="unlink-google-confirm" required /> I confirm I still have a fallback login method.</label>
+                <button type="submit" class="btn-ghost">Unlink Google account</button>
+              </form>
+              {% endif %}
             </div>
             <h3>Switch user</h3>
             <form method="post" action="/api/auth/switch-user">
@@ -354,6 +376,13 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signin-modal-title">
       <button type="button" class="modal-close btn-ghost" id="close-signin-modal" aria-label="Close sign-in dialog">×</button>
       <h2 id="signin-modal-title">Sign in</h2>
+      <form method="get" action="/api/auth/google/start">
+        <button type="submit" class="btn-primary">Continue with Google</button>
+      </form>
+      {% if local_signin_enabled %}
+      <p class="helper-text">Or use your local SongRanker credentials:</p>
+      {% endif %}
+      <p id="signin-modal-status" class="status-info status-hidden" aria-live="polite"></p>
       <form method="post" action="/api/auth/signin">
         <label>Username <input type="text" name="username" required /></label>
         <label>Password <input type="password" name="password" required /></label>
@@ -388,6 +417,7 @@
     let closeHeaderMenu = () => {};
     const authWarningBanner = document.getElementById("auth-warning-banner");
     const dismissAuthWarningBtn = document.getElementById("dismiss-auth-warning");
+    const signinModalStatusEl = document.getElementById("signin-modal-status");
     const AUTH_WARNING_DISMISSED_KEY = "songranker_auth_warning_dismissed";
 
     function rememberOverlayOpener(overlayId) {
@@ -514,6 +544,14 @@
 
     function initializeAuthWarningBanner() {
       if (!authWarningBanner || !dismissAuthWarningBtn) return;
+      if (!isAuthenticated && signinModalStatusEl) {
+        const message = authWarningBanner.querySelector("p")?.textContent?.trim() || "";
+        const isError = authWarningBanner.className.includes("status-error");
+        if (message) {
+          signinModalStatusEl.textContent = message;
+          signinModalStatusEl.className = isError ? "status-error" : "status-info";
+        }
+      }
       let isDismissed = false;
       try {
         isDismissed = window.localStorage.getItem(AUTH_WARNING_DISMISSED_KEY) === "true";

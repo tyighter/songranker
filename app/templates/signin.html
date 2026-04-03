@@ -15,6 +15,10 @@
 
     <section class="panel">
       <h2>Sign in</h2>
+      <form method="get" action="/api/auth/google/start">
+        <button type="submit" class="btn-primary">Continue with Google</button>
+      </form>
+      <p class="helper-text">Prefer your Google account? Use it here, or sign in locally below.</p>
       <form method="post" action="/api/auth/signin" id="signin-form">
         <label>Username <input type="text" name="username" required /></label>
         <p class="helper-text">Use the username you created (letters, numbers, underscore, or dash).</p>
@@ -60,7 +64,7 @@
     const globalNotice = document.getElementById("signin-global-notice");
     if (globalNotice) {
       const notice = globalNotice.textContent || "";
-      const looksLikeError = /error|invalid|failed|unable|missing/i.test(notice);
+      const looksLikeError = /error|invalid|failed|unable|missing|denied|expired|mismatch/i.test(notice);
       const targetStatus = looksLikeError
         ? document.getElementById("signin-status")
         : document.getElementById("create-user-status");

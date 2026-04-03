@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode, urljoin
+from urllib.parse import quote, unquote, urlencode, urljoin
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -1360,6 +1360,28 @@ def signin_page(request: StarletteRequest, db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
+def _friendly_auth_message(auth_error: str | None, detail: str | None) -> tuple[str, str]:
+    if not auth_error:
+        return ("Auth is intentionally lightweight and not secure yet.", "status-info")
+
+    detail_text = unquote(detail).strip() if detail else ""
+    messages: dict[str, str] = {
+        "google_consent_denied": "Google sign-in was canceled. You can try again or use username/password.",
+        "google_auth_error": "Google sign-in could not be completed. Please try again.",
+        "google_state_missing": "Your Google sign-in session expired. Please start sign-in again.",
+        "google_state_mismatch": "Google sign-in verification failed. Please retry from this device.",
+        "google_missing_code": "Google sign-in response was incomplete. Please try again.",
+        "google_nonce_mismatch": "Google sign-in could not be verified securely. Please try again.",
+        "google_link_confirmation_required": "We found a matching email. Confirm linking by signing in again with Google.",
+        "google_duplicate_link_conflict": "This Google account is already linked to another SongRanker user.",
+        "google_invalid_token": "Google sign-in failed token validation. Please try again.",
+    }
+    base_message = messages.get(auth_error, "Authentication could not be completed. Please try again.")
+    if detail_text:
+        base_message = f"{base_message} ({detail_text})"
+    return (base_message, "status-error")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: StarletteRequest, db: Session = Depends(get_db)):
     session = _current_session(db, request)
@@ -1375,6 +1397,17 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             db.query(RatingScore.id).filter(RatingScore.user_id == current_user.id).first() is not None
         )
         show_onboarding_helper = not (has_pairwise_votes or has_rating_scores)
+    auth_error = request.query_params.get("auth_error")
+    auth_detail = request.query_params.get("detail")
+    auth_notice, auth_notice_class = _friendly_auth_message(auth_error, auth_detail)
+    google_identity_linked = False
+    if current_user is not None:
+        google_identity_linked = (
+            db.query(UserIdentity.id)
+            .filter(UserIdentity.user_id == current_user.id, UserIdentity.provider == "google")
+            .first()
+            is not None
+        )
     users = db.query(User).order_by(User.username.asc()).all()
 
     return templates.TemplateResponse(
@@ -1386,8 +1419,14 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             "current_user": current_user,
             "is_authenticated": current_user is not None,
             "show_onboarding_helper": show_onboarding_helper,
+            "google_identity_linked": google_identity_linked,
+            "google_auth_available": bool(
+                settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri
+            ),
+            "local_signin_enabled": True,
             "users": users,
-            "notice": "Auth is intentionally lightweight and not secure yet.",
+            "notice": auth_notice,
+            "notice_class": auth_notice_class,
         },
     )
 
