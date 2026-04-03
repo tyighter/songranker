@@ -72,6 +72,9 @@
       <button type="button" class="modal-close btn-ghost" data-close-modal="user-modal" aria-label="Close user dialog">×</button>
       <h2 id="user-modal-title">User info</h2>
       <p>Signed in as <strong>{{ current_user.username }}</strong>.</p>
+      <div class="profile-avatar-hero">
+        <img src="{{ avatar_url }}" alt="Current profile photo for {{ current_user.username }}" class="profile-avatar-image" />
+      </div>
       <nav class="user-modal-nav" aria-label="User info sections">
         <a href="#user-section-profile">Profile</a>
         <a href="#user-section-history">History</a>
@@ -84,6 +87,17 @@
           <summary id="user-section-profile-heading">Profile</summary>
           <div class="user-modal-section-body">
             <p class="section-task-hint">Account actions and user switching.</p>
+            <h3>Profile photo</h3>
+            <p class="helper-text">Upload a PNG, JPEG, or WEBP image up to 2 MB.</p>
+            {% if avatar_message %}
+            <p class="{{ avatar_notice_class }}">{{ avatar_message }}</p>
+            {% endif %}
+            <form method="post" action="/api/profile/photo" enctype="multipart/form-data" class="profile-avatar-form">
+              <label>Choose image
+                <input type="file" name="profile_photo" accept="image/png,image/jpeg,image/webp" required />
+              </label>
+              <button type="submit" class="btn-primary">Upload photo</button>
+            </form>
             <div class="inline-forms">
               <form method="post" action="/api/auth/signout">
                 <button type="submit" class="btn-secondary">Sign out</button>

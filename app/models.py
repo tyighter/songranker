@@ -13,6 +13,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    profile_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    profile_image_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    profile_image_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
