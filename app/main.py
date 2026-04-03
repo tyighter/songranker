@@ -44,7 +44,7 @@ from app.models import (
 DEFAULT_RATING = 1000
 ELO_K = 24
 DEFAULT_POPULARITY_WEIGHT = 0.35
-POPULARITY_RATING_COUNT_CAP = 500
+POPULARITY_RATING_COUNT_CAP = 500_000_000
 SESSION_COOKIE_NAME = "songranker_session"
 OIDC_LOGIN_COOKIE_NAME = "songranker_oidc_login"
 OIDC_LOGIN_TTL_SECONDS = 600
@@ -642,8 +642,7 @@ def _song_selection_weight(song: Song, popularity_weight: float) -> float:
 
     count_component = 0.0
     if rating_count is not None:
-        normalized_count = min(rating_count, POPULARITY_RATING_COUNT_CAP) / POPULARITY_RATING_COUNT_CAP
-        count_component = max(0.0, min(1.0, normalized_count))
+        count_component = min(max(rating_count, 0), POPULARITY_RATING_COUNT_CAP) / POPULARITY_RATING_COUNT_CAP
 
     effective_popularity_weight = _clamp_popularity_weight(popularity_weight)
     return max(0.0001, 1.0 + (effective_popularity_weight * count_component))
