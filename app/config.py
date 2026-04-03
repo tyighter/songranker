@@ -14,6 +14,12 @@ class Settings:
     youtube_data_api_key: str = os.getenv("YOUTUBE_DATA_API_KEY", "")
     youtube_search_fallback_provider: str = os.getenv("YOUTUBE_SEARCH_FALLBACK_PROVIDER", "youtube_html_scrape")
     youtube_lookup_cache_ttl_seconds: int = int(os.getenv("YOUTUBE_LOOKUP_CACHE_TTL_SECONDS", "900"))
+    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "")
+    google_oidc_discovery_url: str = os.getenv(
+        "GOOGLE_OIDC_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration"
+    )
 
     @property
     def database_url(self) -> str:
