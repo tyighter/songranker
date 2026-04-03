@@ -167,6 +167,12 @@ class PlexLibraryUpdateRequest(BaseModel):
     plex_music_section_id: str
 
 
+class YouTubeCacheInvalidateRequest(BaseModel):
+    title: str | None = None
+    artist: str | None = None
+    clear_all: bool = False
+
+
 def _hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 600_000).hex()
@@ -1159,6 +1165,31 @@ def _prune_expired_youtube_lookup_cache(db: Session) -> int:
     if deleted:
         db.commit()
     return deleted
+
+
+def _invalidate_youtube_lookup_cache_entry(db: Session, title: str, artist: str) -> tuple[bool, int]:
+    title_norm, artist_norm, _ = _cache_key_for_youtube_lookup(title, artist)
+    l1_cleared = False
+    with _youtube_lookup_cache_lock:
+        l1_cleared = _youtube_lookup_cache.pop((title_norm, artist_norm), None) is not None
+    deleted_rows = (
+        db.query(YouTubeLookupCache)
+        .filter(and_(YouTubeLookupCache.title_norm == title_norm, YouTubeLookupCache.artist_norm == artist_norm))
+        .delete(synchronize_session=False)
+    )
+    if deleted_rows:
+        db.commit()
+    return l1_cleared, deleted_rows
+
+
+def _clear_all_youtube_lookup_cache(db: Session) -> tuple[int, int]:
+    with _youtube_lookup_cache_lock:
+        l1_cleared = len(_youtube_lookup_cache)
+        _youtube_lookup_cache.clear()
+    deleted_rows = db.query(YouTubeLookupCache).delete(synchronize_session=False)
+    if deleted_rows:
+        db.commit()
+    return l1_cleared, deleted_rows
 
 
 def _make_youtube_provider_chain() -> list[YouTubeSearchProvider]:
@@ -2206,6 +2237,37 @@ def get_first_youtube_video(
             status_code=502,
             detail={"code": "youtube_fetch_failed", "message": "Unable to contact YouTube right now."},
         )
+
+
+@app.post("/api/debug/youtube/cache/invalidate")
+def invalidate_youtube_cache(
+    payload: YouTubeCacheInvalidateRequest,
+    _: User = Depends(_require_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.clear_all:
+        l1_cleared_count, l2_deleted_rows = _clear_all_youtube_lookup_cache(db)
+        return {
+            "scope": "all",
+            "l1_cleared_count": l1_cleared_count,
+            "l2_deleted_rows": l2_deleted_rows,
+        }
+
+    title = (payload.title or "").strip()
+    artist = (payload.artist or "").strip()
+    if not title or not artist:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both title and artist when clear_all is false.",
+        )
+    l1_cleared, l2_deleted_rows = _invalidate_youtube_lookup_cache_entry(db=db, title=title, artist=artist)
+    return {
+        "scope": "entry",
+        "title": title,
+        "artist": artist,
+        "l1_cleared": l1_cleared,
+        "l2_deleted_rows": l2_deleted_rows,
+    }
 
 
 @app.get("/api/rate/next", response_model=NextPairResponse)

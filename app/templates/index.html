@@ -283,6 +283,16 @@
         </label>
         <button id="save-library-btn" type="submit" class="btn-primary">Apply library</button>
       </form>
+      <form id="youtube-cache-debug-form">
+        <h3>YouTube lookup debug</h3>
+        <p class="helper-text">Clear YouTube lookup cache after key/provider changes, then run lookup immediately.</p>
+        <label>Song title <input type="text" id="youtube-cache-title-input" placeholder="Track title" /></label>
+        <label>Artist <input type="text" id="youtube-cache-artist-input" placeholder="Artist name" /></label>
+        <div class="inline-forms">
+          <button id="youtube-cache-refresh-btn" type="submit" class="btn-secondary">Clear entry + test lookup</button>
+          <button id="youtube-cache-clear-all-btn" type="button" class="btn-ghost">Clear full YouTube cache</button>
+        </div>
+      </form>
       <button id="resync-btn" type="button" class="btn-secondary">Manual Plex resync</button>
       <button id="reset-global-rankings-btn" type="button" class="btn-danger">Reset global rankings</button>
       <p id="settings-status" class="status-info status-hidden" aria-live="polite"></p>
@@ -724,6 +734,10 @@
       const youtubeModalSongMetaEl = document.getElementById("youtube-modal-song-meta");
       const youtubeModalPlayerSlotEl = document.getElementById("youtube-modal-player-slot");
       const youtubeModalStatusEl = document.getElementById("youtube-modal-status");
+      const youtubeCacheDebugFormEl = document.getElementById("youtube-cache-debug-form");
+      const youtubeCacheTitleInputEl = document.getElementById("youtube-cache-title-input");
+      const youtubeCacheArtistInputEl = document.getElementById("youtube-cache-artist-input");
+      const youtubeCacheClearAllBtnEl = document.getElementById("youtube-cache-clear-all-btn");
 
       let currentPair = null;
       let currentFilters = {};
@@ -1683,6 +1697,60 @@
         }
         setStatusMessage(settingsStatusEl, `Global rankings reset. Removed ${payload.deleted_votes || 0} votes.`, "status-success");
         await Promise.all([loadRankings(), loadHistory(), loadSkippedSongs(), loadNextPair(), loadTopTenRankings()]);
+      });
+      youtubeCacheDebugFormEl.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const title = youtubeCacheTitleInputEl.value.trim();
+        const artist = youtubeCacheArtistInputEl.value.trim();
+        if (!title || !artist) {
+          setStatusMessage(settingsStatusEl, "Provide both title and artist before refreshing YouTube lookup.", "status-error");
+          return;
+        }
+
+        setStatusMessage(settingsStatusEl, "Clearing YouTube cache entry...", "status-info");
+        const invalidateResponse = await fetch("/api/debug/youtube/cache/invalidate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, artist, clear_all: false }),
+        });
+        const invalidatePayload = await invalidateResponse.json().catch(() => ({}));
+        if (!invalidateResponse.ok) {
+          setStatusMessage(settingsStatusEl, invalidatePayload.detail || "Unable to clear YouTube cache entry.", "status-error");
+          return;
+        }
+
+        const params = new URLSearchParams({ title, artist });
+        const lookupResponse = await fetch(`/api/youtube/first?${params.toString()}`);
+        const lookupPayload = await lookupResponse.json().catch(() => ({}));
+        if (!lookupResponse.ok) {
+          const message = lookupPayload?.detail?.message || lookupPayload?.detail || "Lookup rerun failed after cache clear.";
+          setStatusMessage(settingsStatusEl, message, "status-error");
+          return;
+        }
+
+        setStatusMessage(
+          settingsStatusEl,
+          `YouTube lookup refreshed (${lookupPayload.provider || "provider"}): ${lookupPayload.video_id || "no video id"}.`,
+          "status-success"
+        );
+      });
+      youtubeCacheClearAllBtnEl.addEventListener("click", async () => {
+        setStatusMessage(settingsStatusEl, "Clearing full YouTube cache...", "status-info");
+        const response = await fetch("/api/debug/youtube/cache/invalidate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clear_all: true }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setStatusMessage(settingsStatusEl, payload.detail || "Unable to clear full YouTube cache.", "status-error");
+          return;
+        }
+        setStatusMessage(
+          settingsStatusEl,
+          `Cleared YouTube cache: L1 ${payload.l1_cleared_count || 0} entries, L2 ${payload.l2_deleted_rows || 0} rows.`,
+          "status-success"
+        );
       });
 
       plexCredentialsFormEl.addEventListener("submit", async (event) => {
