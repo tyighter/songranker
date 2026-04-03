@@ -156,6 +156,10 @@ class SongHistoryResponse(BaseModel):
     recent_matchups: list[dict[str, Any]]
 
 
+class SongDetailResponse(BaseModel):
+    song: dict[str, Any]
+
+
 class PlexSettingsUpdateRequest(BaseModel):
     plex_url: str
     plex_token: str
@@ -725,6 +729,31 @@ def _serialize_song_for_pair(song: Song, score: int, app_settings: AppSettings) 
     payload["plex_rating_count"] = song.plex_rating_count
     payload["selection_weight"] = _song_selection_weight(song, popularity_weight)
     return payload
+
+
+def _serialize_song_detail(
+    song: Song,
+    current_user_score: int,
+    popularity_weight: float,
+) -> dict[str, Any]:
+    clamped_popularity_weight = _clamp_popularity_weight(popularity_weight)
+    return {
+        "id": song.id,
+        "title": song.title,
+        "artist": song.artist,
+        "album": song.album,
+        "year": song.year,
+        "decade": song.decade,
+        "plex_rating_key": song.plex_rating_key,
+        "plex_user_rating": song.plex_user_rating,
+        "plex_rating_count": song.plex_rating_count,
+        "source_uri": song.source_uri,
+        "created_at": song.created_at.isoformat() if song.created_at else None,
+        "updated_at": song.updated_at.isoformat() if song.updated_at else None,
+        "popularity_weight": clamped_popularity_weight,
+        "computed_selection_weight": _song_selection_weight(song, clamped_popularity_weight),
+        "current_user_score": current_user_score,
+    }
 
 
 def _candidate_pair_for_user(
@@ -2672,6 +2701,28 @@ def get_song_history(
             }
             for vote, winner, loser in matchup_rows
         ],
+    )
+
+
+@app.get("/api/songs/{song_id}", response_model=SongDetailResponse)
+def get_song_detail(
+    song_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if song is None:
+        raise HTTPException(status_code=404, detail="Song not found")
+
+    app_settings = _get_or_create_settings(db)
+    rating_row = (
+        db.query(RatingScore)
+        .filter(and_(RatingScore.user_id == current_user.id, RatingScore.song_id == song_id))
+        .first()
+    )
+    current_user_score = rating_row.score if rating_row else DEFAULT_RATING
+    return SongDetailResponse(
+        song=_serialize_song_detail(song, current_user_score, app_settings.popularity_weight)
     )
 
 

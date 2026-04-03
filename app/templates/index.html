@@ -187,6 +187,7 @@
                     <th><button type="button" class="sort-btn btn-ghost" data-sort="vote_count">Total Matchups</button></th>
                     <th>Wins</th>
                     <th>Losses</th>
+                    <th>Inspect</th>
                   </tr>
                 </thead>
                 <tbody id="rankings-body"></tbody>
@@ -376,6 +377,28 @@
         </table>
       </div>
       <p id="rankings-modal-status"></p>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="song-details-modal" aria-hidden="true" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="song-details-modal-title">
+      <button type="button" class="modal-close btn-ghost" data-close-modal="song-details-modal" aria-label="Close song details dialog">×</button>
+      <h2 id="song-details-modal-title">Song Details</h2>
+      <p id="song-details-status" class="status-info status-hidden" aria-live="polite"></p>
+
+      <h3>Basic metadata</h3>
+      <div class="song-details-grid" id="song-details-basic"></div>
+
+      <h3>Plex metadata</h3>
+      <div class="song-details-grid" id="song-details-plex"></div>
+
+      <h3>Ranking/selection diagnostics</h3>
+      <div class="song-details-grid" id="song-details-diagnostics"></div>
+
+      <details class="song-details-raw">
+        <summary>Raw JSON payload</summary>
+        <pre id="song-details-json" class="song-details-json"></pre>
+      </details>
     </div>
   </div>
   {% endif %}
@@ -636,6 +659,11 @@
       const personalTopTenBodyEl = document.getElementById("personal-top-ten-body");
       const globalTopTenBodyEl = document.getElementById("global-top-ten-body");
       const skippedBodyEl = document.getElementById("skipped-body");
+      const songDetailsStatusEl = document.getElementById("song-details-status");
+      const songDetailsBasicEl = document.getElementById("song-details-basic");
+      const songDetailsPlexEl = document.getElementById("song-details-plex");
+      const songDetailsDiagnosticsEl = document.getElementById("song-details-diagnostics");
+      const songDetailsJsonEl = document.getElementById("song-details-json");
 
       let currentPair = null;
       let currentFilters = {};
@@ -811,6 +839,7 @@
             <p class="song-meta"><strong>Artist:</strong> ${song.artist}</p>
             <p class="song-meta"><strong>Album:</strong> ${song.album || "Unknown"}</p>
             <div class="song-card-actions">
+              <button type="button" class="btn-ghost btn-icon" data-inspect-song data-song-id="${song.song_id}" aria-label="Inspect song data for ${escapeHtml(song.title)}">🔍</button>
               <button type="button" data-vote-index="${index}" class="btn-primary">Choose this song</button>
               <button type="button" data-skip-index="${index}" class="btn-ghost">Skip song</button>
               <button type="button" data-hide-artist-index="${index}" class="btn-ghost">Hide artist</button>
@@ -1049,6 +1078,62 @@
         renderTableState(tableBodyEl, { message: "Could not load data", className: "table-state-error", colspan });
       }
 
+      function displayFieldValue(value) {
+        if (value === null || value === undefined || value === "") return "(none)";
+        return String(value);
+      }
+
+      function renderSongDetailsGrid(containerEl, entries) {
+        containerEl.innerHTML = entries.map(([label, value]) => `
+          <div class="song-details-key">${escapeHtml(label)}</div>
+          <div class="song-details-value">${escapeHtml(displayFieldValue(value))}</div>
+        `).join("");
+      }
+
+      async function inspectSongDetails(songId) {
+        if (!songId) return;
+        openModal("song-details-modal");
+        setStatusMessage(songDetailsStatusEl, "Loading song details...", "status-info");
+        songDetailsBasicEl.innerHTML = "";
+        songDetailsPlexEl.innerHTML = "";
+        songDetailsDiagnosticsEl.innerHTML = "";
+        songDetailsJsonEl.textContent = "";
+        try {
+          const response = await fetch(`/api/songs/${songId}`);
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            setStatusMessage(songDetailsStatusEl, payload.detail || "Unable to load song details.", "status-error");
+            return;
+          }
+          const song = payload.song || {};
+          renderSongDetailsGrid(songDetailsBasicEl, [
+            ["ID", song.id],
+            ["Title", song.title],
+            ["Artist", song.artist],
+            ["Album", song.album],
+            ["Year", song.year],
+            ["Decade", song.decade],
+            ["Source URI", song.source_uri],
+            ["Created at", song.created_at],
+            ["Updated at", song.updated_at],
+          ]);
+          renderSongDetailsGrid(songDetailsPlexEl, [
+            ["Plex rating key", song.plex_rating_key],
+            ["Plex user rating", song.plex_user_rating],
+            ["Plex rating count", song.plex_rating_count],
+          ]);
+          renderSongDetailsGrid(songDetailsDiagnosticsEl, [
+            ["Current user score", song.current_user_score],
+            ["Popularity weight", song.popularity_weight],
+            ["Computed selection weight", song.computed_selection_weight],
+          ]);
+          songDetailsJsonEl.textContent = JSON.stringify(payload, null, 2);
+          setStatusMessage(songDetailsStatusEl, "Song details loaded.", "status-success");
+        } catch (_error) {
+          setStatusMessage(songDetailsStatusEl, "Unable to load song details.", "status-error");
+        }
+      }
+
       async function loadSkippedSongs() {
         statusEl.textContent = "Loading skipped songs...";
         renderLoadingRow(skippedBodyEl, 6);
@@ -1085,19 +1170,19 @@
 
       async function loadRankings() {
         statusEl.textContent = "Loading rankings...";
-        renderLoadingRow(rankingsBodyEl, 7);
+        renderLoadingRow(rankingsBodyEl, 8);
         const params = { ...collectFilters(), ...rankingSort, page: 1, page_size: 100 };
         try {
           const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
           const payload = await response.json().catch(() => ({ rows: [] }));
           if (!response.ok) {
             statusEl.textContent = payload.detail || "Unable to load rankings.";
-            renderErrorRow(rankingsBodyEl, 7);
+            renderErrorRow(rankingsBodyEl, 8);
             return;
           }
           const rows = payload.rows || [];
           if (!rows.length) {
-            renderEmptyRow(rankingsBodyEl, 7);
+            renderEmptyRow(rankingsBodyEl, 8);
             statusEl.textContent = "No rankings for current filters.";
             return;
           }
@@ -1110,12 +1195,13 @@
               <td>${row.vote_count || 0}</td>
               <td>${row.winner_count || 0}</td>
               <td>${row.loser_count || 0}</td>
+              <td><button type="button" class="btn-ghost btn-icon" data-inspect-song data-song-id="${row.song_id}" aria-label="Inspect song data for ${escapeHtml(row.title)}">🔍</button></td>
             </tr>
           `).join("");
           statusEl.textContent = "Rankings updated.";
         } catch (_error) {
           statusEl.textContent = "Unable to load rankings.";
-          renderErrorRow(rankingsBodyEl, 7);
+          renderErrorRow(rankingsBodyEl, 8);
         }
       }
 
@@ -1267,6 +1353,14 @@
           }
           await loadRankings();
         });
+      });
+
+      document.addEventListener("click", (event) => {
+        const inspectBtn = event.target.closest("[data-inspect-song]");
+        if (!inspectBtn) return;
+        const songId = Number(inspectBtn.dataset.songId);
+        if (!Number.isFinite(songId)) return;
+        inspectSongDetails(songId);
       });
 
       filtersFormEl.addEventListener("change", renderFilterSummary);
