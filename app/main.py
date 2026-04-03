@@ -50,7 +50,6 @@ POPULARITY_COUNT_WEIGHT = 0.75
 POPULARITY_USER_RATING_WEIGHT = 0.25
 SESSION_COOKIE_NAME = "songranker_session"
 OIDC_LOGIN_COOKIE_NAME = "songranker_oidc_login"
-SESSION_TTL_DAYS = 30
 OIDC_LOGIN_TTL_SECONDS = 600
 LOG_FILE_PATH = Path("/log.log")
 logger = logging.getLogger(__name__)
@@ -215,17 +214,46 @@ def _require_current_user(request: StarletteRequest, db: Session = Depends(get_d
 
 
 def _create_session_for_user(db: Session, user_id: int) -> str:
+    return _create_session_for_user_with_rotation(db=db, user_id=user_id, previous_token=None)
+
+
+def _create_session_for_user_with_rotation(db: Session, user_id: int, previous_token: str | None) -> str:
+    if previous_token:
+        db.query(UserSession).filter(UserSession.session_token == previous_token).delete(synchronize_session=False)
+
     token = secrets.token_urlsafe(48)
     now = datetime.now(timezone.utc)
     db.add(
         UserSession(
             session_token=token,
             user_id=user_id,
-            expires_at=now + timedelta(days=SESSION_TTL_DAYS),
+            expires_at=now + timedelta(days=max(1, settings.session_ttl_days)),
         )
     )
     db.commit()
     return token
+
+
+def _log_auth_event(
+    event: str,
+    *,
+    outcome: str,
+    user_id: int | None = None,
+    username: str | None = None,
+    provider: str | None = None,
+    reason: str | None = None,
+) -> None:
+    level = logging.INFO if outcome == "success" else logging.WARNING
+    logger.log(
+        level,
+        "auth_event=%s outcome=%s user_id=%s username=%s provider=%s reason=%s",
+        event,
+        outcome,
+        user_id,
+        username,
+        provider,
+        reason,
+    )
 
 
 def _oidc_signing_key() -> bytes:
@@ -323,18 +351,24 @@ def _derive_username_from_email(db: Session, email: str) -> str:
 
 def _session_redirect(url: str, token: str) -> RedirectResponse:
     response = RedirectResponse(url=url, status_code=303)
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-        max_age=SESSION_TTL_DAYS * 24 * 60 * 60,
-    )
+    cookie_kwargs: dict[str, Any] = {
+        "key": SESSION_COOKIE_NAME,
+        "value": token,
+        "httponly": True,
+        "samesite": settings.normalized_session_cookie_samesite,
+        "secure": settings.session_cookie_secure,
+        "max_age": max(1, settings.session_ttl_days) * 24 * 60 * 60,
+    }
+    if settings.normalized_session_cookie_domain:
+        cookie_kwargs["domain"] = settings.normalized_session_cookie_domain
+    response.set_cookie(**cookie_kwargs)
     return response
 
 
 def _clear_session_cookie(response: RedirectResponse):
+    if settings.normalized_session_cookie_domain:
+        response.delete_cookie(SESSION_COOKIE_NAME, domain=settings.normalized_session_cookie_domain)
+        return
     response.delete_cookie(SESSION_COOKIE_NAME)
 
 
@@ -1412,15 +1446,22 @@ def create_user(
 
 @app.post("/api/auth/signin")
 def signin(
+    request: StarletteRequest,
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.username == username).first()
     if user is None or not _verify_password(password, user.password_hash):
+        _log_auth_event("signin", outcome="failure", username=username, reason="invalid_credentials")
         raise HTTPException(status_code=401, detail="Invalid username/password")
 
-    token = _create_session_for_user(db, user.id)
+    token = _create_session_for_user_with_rotation(
+        db=db,
+        user_id=user.id,
+        previous_token=request.cookies.get(SESSION_COOKIE_NAME),
+    )
+    _log_auth_event("signin", outcome="success", user_id=user.id, username=user.username)
     return _session_redirect(url="/", token=token)
 
 
@@ -1471,14 +1512,17 @@ def google_auth_callback(
     confirm_link: int = Query(default=0),
     db: Session = Depends(get_db),
 ):
+    previous_token = request.cookies.get(SESSION_COOKIE_NAME)
     if error:
         detail = quote(error_description or error)
+        _log_auth_event("google_callback", outcome="failure", provider="google", reason=error)
         if error == "access_denied":
             return RedirectResponse(url=f"/?auth_error=google_consent_denied&detail={detail}", status_code=303)
         return RedirectResponse(url=f"/?auth_error=google_auth_error&detail={detail}", status_code=303)
 
     signed = _decode_signed_cookie(request.cookies.get(OIDC_LOGIN_COOKIE_NAME))
     if signed is None:
+        _log_auth_event("google_callback", outcome="failure", provider="google", reason="state_missing")
         response = RedirectResponse(url="/?auth_error=google_state_missing", status_code=303)
         response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
         return response
@@ -1495,16 +1539,19 @@ def google_auth_callback(
         or not state
         or state != expected_state
     ):
+        _log_auth_event("google_callback", outcome="failure", provider="google", reason="state_mismatch")
         response = RedirectResponse(url="/?auth_error=google_state_mismatch", status_code=303)
         response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
         return response
 
     if not code:
+        _log_auth_event("google_callback", outcome="failure", provider="google", reason="missing_code")
         response = RedirectResponse(url="/?auth_error=google_missing_code", status_code=303)
         response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
         return response
 
     try:
+        linked_provider = False
         metadata = _fetch_google_oidc_metadata()
         token_endpoint = metadata.get("token_endpoint")
         issuer = metadata.get("issuer")
@@ -1549,6 +1596,7 @@ def google_auth_callback(
         if not isinstance(claim_exp, int) or claim_exp <= now_ts:
             raise ValueError("ID token expired")
         if claim_nonce != expected_nonce:
+            _log_auth_event("google_callback", outcome="failure", provider="google", reason="nonce_mismatch")
             response = RedirectResponse(url="/?auth_error=google_nonce_mismatch", status_code=303)
             response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
             return response
@@ -1572,6 +1620,7 @@ def google_auth_callback(
         else:
             existing_user = db.query(User).filter(func.lower(User.email) == claim_email.lower()).first()
             if existing_user is not None and confirm_link != 1:
+                _log_auth_event("google_callback", outcome="failure", provider="google", reason="link_confirmation_required")
                 response = RedirectResponse(url="/?auth_error=google_link_confirmation_required", status_code=303)
                 response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
                 return response
@@ -1593,6 +1642,7 @@ def google_auth_callback(
                 .first()
             )
             if conflicting_identity is not None and conflicting_identity.provider_subject != claim_sub:
+                _log_auth_event("google_callback", outcome="failure", provider="google", reason="duplicate_link_conflict")
                 response = RedirectResponse(url="/?auth_error=google_duplicate_link_conflict", status_code=303)
                 response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
                 return response
@@ -1606,10 +1656,15 @@ def google_auth_callback(
                     email_verified=claim_email_verified,
                 )
             )
+            linked_provider = True
         db.commit()
-        token = _create_session_for_user(db, user.id)
+        token = _create_session_for_user_with_rotation(db=db, user_id=user.id, previous_token=previous_token)
+        if linked_provider:
+            _log_auth_event("provider_link", outcome="success", user_id=user.id, username=user.username, provider="google")
+        _log_auth_event("google_callback", outcome="success", user_id=user.id, username=user.username, provider="google")
     except Exception as exc:
         logger.exception("Google OIDC callback failed: %s", exc)
+        _log_auth_event("google_callback", outcome="failure", provider="google", reason="callback_exception")
         db.rollback()
         response = RedirectResponse(url="/?auth_error=google_invalid_token", status_code=303)
         response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
@@ -1622,15 +1677,28 @@ def google_auth_callback(
 
 @app.post("/api/auth/switch-user")
 def switch_user(
+    request: StarletteRequest,
     user_id: int = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    if not settings.allow_auth_switch_user:
+        _log_auth_event("switch_user", outcome="failure", user_id=user_id, reason="disabled_in_production")
+        raise HTTPException(
+            status_code=403,
+            detail="Account switching is disabled. Re-authenticate with the target account or use admin controls.",
+        )
     user = db.query(User).filter(User.id == user_id).first()
     if user is None or not _verify_password(password, user.password_hash):
+        _log_auth_event("switch_user", outcome="failure", user_id=user_id, reason="invalid_credentials")
         raise HTTPException(status_code=401, detail="Invalid credentials for selected user")
 
-    token = _create_session_for_user(db, user.id)
+    token = _create_session_for_user_with_rotation(
+        db=db,
+        user_id=user.id,
+        previous_token=request.cookies.get(SESSION_COOKIE_NAME),
+    )
+    _log_auth_event("switch_user", outcome="success", user_id=user.id, username=user.username)
     return _session_redirect(url="/", token=token)
 
 
@@ -1638,12 +1706,54 @@ def switch_user(
 def signout(request: StarletteRequest, db: Session = Depends(get_db)):
     session = _current_session(db, request)
     if session is not None:
+        _log_auth_event("signout", outcome="success", user_id=session.user_id)
         db.delete(session)
         db.commit()
+    else:
+        _log_auth_event("signout", outcome="failure", reason="no_active_session")
 
     response = RedirectResponse(url="/", status_code=303)
     _clear_session_cookie(response)
     return response
+
+
+@app.post("/api/auth/unlink-provider")
+def unlink_provider(
+    request: StarletteRequest,
+    provider: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    normalized_provider = provider.strip().lower()
+    if not normalized_provider:
+        _log_auth_event("provider_unlink", outcome="failure", user_id=current_user.id, reason="provider_required")
+        raise HTTPException(status_code=400, detail="provider is required")
+
+    identity = (
+        db.query(UserIdentity)
+        .filter(UserIdentity.user_id == current_user.id, UserIdentity.provider == normalized_provider)
+        .first()
+    )
+    if identity is None:
+        _log_auth_event(
+            "provider_unlink",
+            outcome="failure",
+            user_id=current_user.id,
+            provider=normalized_provider,
+            reason="identity_not_found",
+        )
+        raise HTTPException(status_code=404, detail="Provider identity was not found for current user")
+
+    db.delete(identity)
+    db.commit()
+
+    token = _create_session_for_user_with_rotation(
+        db=db,
+        user_id=current_user.id,
+        previous_token=request.cookies.get(SESSION_COOKIE_NAME),
+    )
+    _log_auth_event("provider_unlink", outcome="success", user_id=current_user.id, provider=normalized_provider)
+    return _session_redirect(url="/", token=token)
 
 
 @app.post("/api/setup/plex")
