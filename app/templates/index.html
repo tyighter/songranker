@@ -61,6 +61,11 @@
 
     {% if is_authenticated %}
     <div class="ranking-workspace">
+      <section class="panel" id="pair-panel" hidden>
+        <h2>Pick your winner</h2>
+        <div id="pair-content"></div>
+      </section>
+
       <section
         class="panel filter-summary-panel"
         id="active-filter-panel"
@@ -71,11 +76,6 @@
         <h2>Active filters</h2>
         <p id="active-filter-summary" class="filter-summary">Active filters: none.</p>
         <p class="helper-text">Tap to update filters.</p>
-      </section>
-
-      <section class="panel" id="pair-panel" hidden>
-        <h2>Pick your winner</h2>
-        <div id="pair-content"></div>
       </section>
     </div>
 
@@ -902,8 +902,10 @@
             <div class="song-card-actions">
               <button type="button" class="btn-ghost btn-icon" data-inspect-song data-song-id="${song.song_id}" aria-label="Inspect song data for ${escapeHtml(song.title)}">🔍</button>
               <button type="button" data-vote-index="${index}" class="btn-primary">Choose this song</button>
-              <button type="button" data-skip-index="${index}" class="btn-ghost">Skip song</button>
-              <button type="button" data-hide-artist-index="${index}" class="btn-ghost">Hide artist</button>
+              <div class="song-card-secondary-actions">
+                <button type="button" data-skip-index="${index}" class="btn-ghost">Skip song</button>
+                <button type="button" data-hide-artist-index="${index}" class="btn-ghost">Skip artist</button>
+              </div>
             </div>
           </div>
         `).join("");

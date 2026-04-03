@@ -393,6 +393,21 @@ button:active {
   margin-top: 0.75rem;
 }
 
+.song-card-actions > button:not(.btn-icon) {
+  width: 100%;
+  margin: 0;
+}
+
+.song-card-secondary-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.song-card-secondary-actions button {
+  flex: 1;
+  margin: 0;
+}
+
 .album-art {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -809,14 +824,7 @@ body.modal-open {
 
 @media (min-width: 1000px) {
   .ranking-workspace {
-    display: grid;
-    grid-template-columns: minmax(220px, 260px) 1fr;
-    align-items: start;
-    gap: 1rem;
-  }
-
-  .ranking-workspace #pair-panel,
-  .ranking-workspace .filter-summary-panel {
-    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
   }
 }
