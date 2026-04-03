@@ -136,6 +136,28 @@ main {
   backdrop-filter: blur(8px);
 }
 
+.ranking-workspace {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-summary-panel {
+  cursor: pointer;
+}
+
+.filter-summary-panel h2 {
+  margin-top: 0;
+}
+
+.filter-summary-panel .helper-text {
+  margin-bottom: 0;
+}
+
+.filter-summary-panel:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+
 .onboarding-panel {
   position: sticky;
   top: 0.5rem;
@@ -771,5 +793,19 @@ body.modal-open {
 
   .user-modal-nav {
     top: -0.9rem;
+  }
+}
+
+@media (min-width: 1000px) {
+  .ranking-workspace {
+    display: grid;
+    grid-template-columns: minmax(220px, 260px) 1fr;
+    align-items: start;
+    gap: 1rem;
+  }
+
+  .ranking-workspace #pair-panel,
+  .ranking-workspace .filter-summary-panel {
+    margin-bottom: 0;
   }
 }

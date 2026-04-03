@@ -56,10 +56,24 @@
     {% endif %}
 
     {% if is_authenticated %}
-    <section class="panel" id="pair-panel" hidden>
-      <h2>Pick your winner</h2>
-      <div id="pair-content"></div>
-    </section>
+    <div class="ranking-workspace">
+      <section
+        class="panel filter-summary-panel"
+        id="active-filter-panel"
+        role="button"
+        tabindex="0"
+        aria-label="Open filters"
+      >
+        <h2>Active filters</h2>
+        <p id="active-filter-summary" class="filter-summary">Active filters: none.</p>
+        <p class="helper-text">Tap to update filters.</p>
+      </section>
+
+      <section class="panel" id="pair-panel" hidden>
+        <h2>Pick your winner</h2>
+        <div id="pair-content"></div>
+      </section>
+    </div>
 
     <datalist id="artist-options"></datalist>
     <datalist id="album-options"></datalist>
@@ -642,6 +656,8 @@
 
       const statusEl = document.getElementById("status");
       const filterSummaryEl = document.getElementById("filter-summary");
+      const activeFilterSummaryEl = document.getElementById("active-filter-summary");
+      const activeFilterPanelEl = document.getElementById("active-filter-panel");
       const settingsStatusEl = document.getElementById("settings-status");
       const pairPanel = document.getElementById("pair-panel");
       const pairContent = document.getElementById("pair-content");
@@ -811,9 +827,11 @@
         if (filters.decade) parts.push(`Decade: ${filters.decade}`);
         if (filters.artist) parts.push(`Artist: ${filters.artist}`);
         if (filters.album) parts.push(`Album: ${filters.album}`);
-        filterSummaryEl.textContent = parts.length
+        const summaryText = parts.length
           ? `Active filters: ${parts.join(" · ")}.`
           : "Active filters: none.";
+        filterSummaryEl.textContent = summaryText;
+        if (activeFilterSummaryEl) activeFilterSummaryEl.textContent = summaryText;
       }
 
       async function loadAutocompleteOptions() {
@@ -1399,6 +1417,15 @@
         await loadTopTenRankings();
       });
       document.getElementById("refresh-rankings-modal-btn").addEventListener("click", loadTopTenRankings);
+      if (activeFilterPanelEl) {
+        const openFiltersFromSummary = () => openModal("filters-modal");
+        activeFilterPanelEl.addEventListener("click", openFiltersFromSummary);
+        activeFilterPanelEl.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openFiltersFromSummary();
+        });
+      }
       document.getElementById("clear-rankings-modal-filters-btn").addEventListener("click", async () => {
         rankingsFilterDecadeEl.value = "";
         rankingsFilterArtistEl.value = "";
