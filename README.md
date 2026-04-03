@@ -26,11 +26,16 @@ If you want "Continue with Google" to be active, configure Google OAuth credenti
 
 1. Create a `.env` file (you can copy from `.env.example`).
 2. Fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-3. Set `GOOGLE_REDIRECT_URI` to your callback URL.
-   - `localhost` only works when your browser and SongRanker server are running on the same machine.
-   - LAN example: `http://192.168.111.77:2112/api/auth/google/callback`
-   - WAN/domain example: `https://songranker.example.com/api/auth/google/callback`
-4. In Google Cloud Console, add each callback URL you plan to use under your OAuth client's **Authorized redirect URIs** (every URI must be listed).
+3. Configure callback handling in one of these ways:
+   - **Single-host deploys:** set `GOOGLE_REDIRECT_URI` to one fixed callback URL.
+     - `localhost` only works when your browser and SongRanker server are running on the same machine.
+     - LAN example: `http://192.168.111.77:2112/api/auth/google/callback`
+     - WAN/domain example: `https://songranker.example.com/api/auth/google/callback`
+   - **Multi-host/IP deploys behind proxies:** set `GOOGLE_REDIRECT_ORIGINS` (comma-separated origins), for example:
+     - `http://192.168.111.77:2112,http://24.141.59.59:2112`
+     - `https://songranker-lan.example.com,https://songranker.example.com`
+     SongRanker will derive the redirect URI from the incoming request origin and append `/api/auth/google/callback`.
+4. In Google Cloud Console, add each callback URL you plan to use under your OAuth client's **Authorized redirect URIs** (every resulting callback URI must be listed).
 5. Restart the app:
 
 ```bash
@@ -123,7 +128,9 @@ You can configure the DB with either:
 - or the PostgreSQL parts: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 - `YOUTUBE_DATA_API_KEY` to enable verified embeddable YouTube lookups via YouTube Data API v3.
 - `YOUTUBE_SEARCH_FALLBACK_PROVIDER` to control non-API fallbacks (`disabled` by default; set to `youtube_html_scrape` only if you explicitly want unverified fallback candidates).
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` to enable Google OIDC sign-in/account linking.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to enable Google OIDC sign-in/account linking.
+- `GOOGLE_REDIRECT_ORIGINS` (preferred for multi-host/proxy setups): comma-separated origins used to derive callback URIs per request.
+- `GOOGLE_REDIRECT_URI` (optional fallback): fixed callback URI for single-host deployments.
 
 By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`. That path is mounted from the named Docker volume `songranker_data`, so database state persists across container rebuilds/restarts until you remove the volume.
 
