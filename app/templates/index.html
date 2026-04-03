@@ -959,6 +959,17 @@
         pairPanel.hidden = false;
       }
 
+      function renderPairLoadingState() {
+        currentPair = null;
+        pairContent.innerHTML = `
+          <div class="matchup-loading-state" role="status" aria-live="polite">
+            <span class="matchup-loading-spinner" aria-hidden="true"></span>
+            <p>preparing next match up</p>
+          </div>
+        `;
+        pairPanel.hidden = false;
+      }
+
       function escapeHtml(value) {
         return String(value ?? "")
           .replace(/&/g, "&amp;")
@@ -1217,7 +1228,12 @@
       async function loadNextPair() {
         currentFilters = collectFilters();
         statusEl.textContent = "Loading songs...";
-        pairPanel.hidden = true;
+        const hasDisplayedSongs = Boolean(pairContent.querySelector(".song-card"));
+        if (!hasDisplayedSongs) {
+          renderPairLoadingState();
+        } else {
+          pairPanel.hidden = true;
+        }
         const startedAt = performance.now();
         const url = `/api/rate/next?${paramsFromObject(currentFilters)}`;
         logRateEvent("load_next_pair_started", { filters: currentFilters });
@@ -1232,6 +1248,7 @@
               elapsed_ms: elapsedMs,
               detail: body.detail || null,
             });
+            pairPanel.hidden = true;
             statusEl.textContent = body.detail || "No pair available.";
             return;
           }
@@ -1249,6 +1266,7 @@
             elapsed_ms: elapsedMs,
             message: error?.message || String(error),
           });
+          pairPanel.hidden = true;
           statusEl.textContent = "Failed to load songs. Check browser console logs.";
         }
       }
