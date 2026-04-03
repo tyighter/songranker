@@ -484,6 +484,16 @@
     const dismissAuthWarningBtn = document.getElementById("dismiss-auth-warning");
     const signinModalStatusEl = document.getElementById("signin-modal-status");
     const AUTH_WARNING_DISMISSED_KEY = "songranker_auth_warning_dismissed";
+    let youtubePlayerInstance = null;
+    let youtubeIframeApiPromise = null;
+    const youtubeLookupAttemptByTrigger = new WeakMap();
+
+    function destroyYouTubePlayer() {
+      if (youtubePlayerInstance && typeof youtubePlayerInstance.destroy === "function") {
+        youtubePlayerInstance.destroy();
+      }
+      youtubePlayerInstance = null;
+    }
 
     function rememberOverlayOpener(overlayId) {
       if (document.activeElement && typeof document.activeElement.focus === "function") {
@@ -543,6 +553,7 @@
       if (modalId === "youtube-modal") {
         const playerSlotEl = document.getElementById("youtube-modal-player-slot");
         const statusEl = document.getElementById("youtube-modal-status");
+        if (typeof destroyYouTubePlayer === "function") destroyYouTubePlayer();
         if (playerSlotEl) playerSlotEl.innerHTML = "";
         if (statusEl) {
           statusEl.textContent = "";
@@ -951,21 +962,106 @@
         statusEl.innerHTML = `${escapeHtml(message)} <a href="${fallbackSearchUrl}" target="_blank" rel="noopener noreferrer">Open YouTube</a>`;
       }
 
-      async function embedFirstYouTubeVideo(triggerEl) {
+      function ensureYouTubeIframeApi() {
+        if (window.YT?.Player) return Promise.resolve(window.YT);
+        if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
+
+        youtubeIframeApiPromise = new Promise((resolve, reject) => {
+          const existingScript = document.querySelector('script[data-youtube-iframe-api="true"]');
+          let timeoutId = null;
+          const previousReadyHandler = window.onYouTubeIframeAPIReady;
+
+          const cleanupReady = () => {
+            if (timeoutId) window.clearTimeout(timeoutId);
+          };
+
+          window.onYouTubeIframeAPIReady = function onYouTubeIframeAPIReadyProxy() {
+            if (typeof previousReadyHandler === "function") previousReadyHandler();
+            cleanupReady();
+            resolve(window.YT);
+          };
+
+          if (!existingScript) {
+            const script = document.createElement("script");
+            script.src = "https://www.youtube.com/iframe_api";
+            script.async = true;
+            script.dataset.youtubeIframeApi = "true";
+            script.onerror = () => {
+              cleanupReady();
+              reject(new Error("Failed to load YouTube IFrame API script."));
+            };
+            document.head.appendChild(script);
+          }
+
+          timeoutId = window.setTimeout(() => {
+            reject(new Error("Timed out while waiting for YouTube IFrame API."));
+          }, 15000);
+        });
+
+        return youtubeIframeApiPromise;
+      }
+
+      function getYouTubeLookupAttempt(triggerEl) {
+        const attempt = youtubeLookupAttemptByTrigger.get(triggerEl) || 0;
+        youtubeLookupAttemptByTrigger.set(triggerEl, attempt);
+        return attempt;
+      }
+
+      function advanceYouTubeLookupAttempt(triggerEl) {
+        const nextAttempt = getYouTubeLookupAttempt(triggerEl) + 1;
+        youtubeLookupAttemptByTrigger.set(triggerEl, nextAttempt);
+      }
+
+      function augmentLookupTitleForAttempt(title, attempt) {
+        const suffixes = ["", " official audio", " lyrics", " audio"];
+        const suffix = suffixes[Math.min(attempt, suffixes.length - 1)];
+        return `${title || ""}${suffix}`.trim();
+      }
+
+      function renderYouTubeActionStatus(statusEl, message, fallbackSearchUrl, onTryNextCandidate) {
+        statusEl.innerHTML = "";
+        const messageEl = document.createElement("span");
+        messageEl.textContent = message;
+        const openLink = document.createElement("a");
+        openLink.href = fallbackSearchUrl;
+        openLink.target = "_blank";
+        openLink.rel = "noopener noreferrer";
+        openLink.textContent = "Open on YouTube";
+        const tryNextBtn = document.createElement("button");
+        tryNextBtn.type = "button";
+        tryNextBtn.className = "btn-ghost";
+        tryNextBtn.textContent = "Try next candidate";
+        tryNextBtn.addEventListener("click", onTryNextCandidate);
+        statusEl.append(messageEl, document.createTextNode(" "), openLink, document.createTextNode(" · "), tryNextBtn);
+      }
+
+      function getPlayerErrorMessage(errorCode) {
+        if (errorCode === 101 || errorCode === 150) return "This video cannot be played in embedded mode.";
+        if (errorCode === 2) return "The selected YouTube video id appears invalid.";
+        if (errorCode === 5) return "The YouTube player could not load this video.";
+        if (errorCode === 100) return "The selected YouTube video is no longer available.";
+        return "The YouTube player could not start this video.";
+      }
+
+      async function embedFirstYouTubeVideo(triggerEl, options = {}) {
         if (!triggerEl || triggerEl.dataset.youtubeLoading === "true") return;
         if (!youtubeModalSongMetaEl || !youtubeModalPlayerSlotEl || !youtubeModalStatusEl) return;
 
         const title = triggerEl.dataset.songTitle || "";
         const artist = triggerEl.dataset.songArtist || "";
         const fallbackSearchUrl = buildYouTubeSearchUrl(title, artist);
+        const attempt = options.forceNextCandidate ? getYouTubeLookupAttempt(triggerEl) + 1 : getYouTubeLookupAttempt(triggerEl);
+        youtubeLookupAttemptByTrigger.set(triggerEl, attempt);
+        const lookupTitle = augmentLookupTitleForAttempt(title, attempt);
         triggerEl.dataset.youtubeLoading = "true";
         youtubeModalSongMetaEl.textContent = `${title || "Unknown title"} — ${artist || "Unknown artist"}`;
-        youtubeModalPlayerSlotEl.innerHTML = "";
+        destroyYouTubePlayer();
+        youtubeModalPlayerSlotEl.innerHTML = '<div id="youtube-modal-player-instance-slot"></div>';
         youtubeModalStatusEl.textContent = "";
         youtubeModalStatusEl.className = "album-embed-message";
         openModal("youtube-modal");
         try {
-          const params = paramsFromObject({ title, artist });
+          const params = paramsFromObject({ title: lookupTitle, artist });
           const response = await fetch(`/api/youtube/first?${params}`);
           const payload = await response.json().catch(() => ({}));
           if (!response.ok || !payload.video_id) {
@@ -976,22 +1072,43 @@
             } else {
               youtubeModalStatusEl.textContent = detailMessage;
             }
-            console.error("[SongRanker][youtube] lookup_failed", { title, artist, fallbackSearchUrl, payload, status: response.status });
+            console.error("[SongRanker][youtube] lookup_failed", { title, lookupTitle, artist, fallbackSearchUrl, payload, status: response.status });
             return;
           }
 
-          youtubeModalPlayerSlotEl.innerHTML = `<iframe
-            class="album-embed-frame"
-            src="https://www.youtube.com/embed/${payload.video_id}?autoplay=1"
-            title="YouTube player for ${escapeHtml(title)} by ${escapeHtml(artist)}"
-            allowfullscreen
-            referrerpolicy="strict-origin-when-cross-origin"
-            allow="autoplay; encrypted-media; picture-in-picture"
-            loading="lazy"
-          ></iframe>`;
+          await ensureYouTubeIframeApi();
+          youtubePlayerInstance = new window.YT.Player("youtube-modal-player-instance-slot", {
+            height: "360",
+            width: "640",
+            videoId: payload.video_id,
+            playerVars: {
+              autoplay: 1,
+              rel: 0,
+              playsinline: 1,
+            },
+            events: {
+              onReady: () => {
+                youtubeModalStatusEl.textContent = "";
+              },
+              onError: (event) => {
+                const errorCode = Number(event?.data);
+                const message = getPlayerErrorMessage(errorCode);
+                destroyYouTubePlayer();
+                renderYouTubeActionStatus(youtubeModalStatusEl, message, fallbackSearchUrl, () => {
+                  advanceYouTubeLookupAttempt(triggerEl);
+                  embedFirstYouTubeVideo(triggerEl, { forceNextCandidate: true });
+                });
+                console.error("[SongRanker][youtube] runtime_player_error", { title, lookupTitle, artist, video_id: payload.video_id, error_code: errorCode, fallbackSearchUrl });
+              },
+            },
+          });
         } catch (error) {
-          youtubeModalStatusEl.textContent = "Unable to load YouTube video right now.";
-          console.error("[SongRanker][youtube] lookup_error", { title, artist, error: error?.message || String(error), fallbackSearchUrl });
+          destroyYouTubePlayer();
+          renderYouTubeActionStatus(youtubeModalStatusEl, "Unable to load YouTube video right now.", fallbackSearchUrl, () => {
+            advanceYouTubeLookupAttempt(triggerEl);
+            embedFirstYouTubeVideo(triggerEl, { forceNextCandidate: true });
+          });
+          console.error("[SongRanker][youtube] lookup_error", { title, lookupTitle, artist, error: error?.message || String(error), fallbackSearchUrl });
         } finally {
           delete triggerEl.dataset.youtubeLoading;
         }
