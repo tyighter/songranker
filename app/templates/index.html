@@ -862,7 +862,7 @@
       }
 
       function renderYouTubeFallbackStatus(statusEl, message, fallbackSearchUrl) {
-        statusEl.innerHTML = `${escapeHtml(message)} <a href="${fallbackSearchUrl}" target="_blank" rel="noopener noreferrer">Open YouTube search</a>`;
+        statusEl.innerHTML = `${escapeHtml(message)} <a href="${fallbackSearchUrl}" target="_blank" rel="noopener noreferrer">Open YouTube</a>`;
       }
 
       async function embedFirstYouTubeVideo(triggerEl) {
@@ -884,7 +884,7 @@
           if (!response.ok || !payload.video_id) {
             const detailMessage = payload?.detail?.message || payload?.detail || "No playable video found.";
             const detailCode = payload?.detail?.code || "";
-            if (detailCode === "video_not_found" || detailCode === "video_not_embeddable") {
+            if (detailCode === "video_not_found" || detailCode === "video_not_embeddable" || detailCode === "video_embeddability_unverified") {
               renderYouTubeFallbackStatus(embedStatusEl, detailMessage, fallbackSearchUrl);
             } else {
               embedStatusEl.textContent = detailMessage;

@@ -104,6 +104,8 @@ You can configure the DB with either:
 
 - `DATABASE_URL` (preferred)
 - or the PostgreSQL parts: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `YOUTUBE_DATA_API_KEY` to enable verified embeddable YouTube lookups via YouTube Data API v3.
+- `YOUTUBE_SEARCH_FALLBACK_PROVIDER` to control non-API fallbacks (`disabled` by default; set to `youtube_html_scrape` only if you explicitly want unverified fallback candidates).
 
 By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`. That path is mounted from the named Docker volume `songranker_data`, so database state persists across container rebuilds/restarts until you remove the volume.
 

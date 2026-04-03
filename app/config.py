@@ -19,7 +19,7 @@ class Settings:
     db_password: str = os.getenv("DB_PASSWORD", "songranker")
     database_url_override: str | None = os.getenv("DATABASE_URL")
     youtube_data_api_key: str = os.getenv("YOUTUBE_DATA_API_KEY", "")
-    youtube_search_fallback_provider: str = os.getenv("YOUTUBE_SEARCH_FALLBACK_PROVIDER", "youtube_html_scrape")
+    youtube_search_fallback_provider: str = os.getenv("YOUTUBE_SEARCH_FALLBACK_PROVIDER", "disabled")
     youtube_lookup_cache_ttl_seconds: int = int(os.getenv("YOUTUBE_LOOKUP_CACHE_TTL_SECONDS", "900"))
     google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
     google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
