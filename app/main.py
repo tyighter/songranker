@@ -163,6 +163,7 @@ class SongDetailResponse(BaseModel):
 class PlexSettingsUpdateRequest(BaseModel):
     plex_url: str
     plex_token: str
+    popularity_weight: float | None = None
 
 
 class PlexLibraryUpdateRequest(BaseModel):
@@ -600,8 +601,10 @@ def _plex_connection_payload(app_settings: AppSettings) -> dict[str, Any]:
 
     return {
         "plex_url": app_settings.plex_url or "",
+        "plex_token": app_settings.plex_token or "",
         "plex_token_set": bool(app_settings.plex_token),
         "plex_music_section_id": app_settings.plex_music_section_id or "",
+        "popularity_weight": _clamp_popularity_weight(app_settings.popularity_weight),
         "libraries": libraries,
         "connection_status": connection_status,
         "connection_error": error,
@@ -1935,55 +1938,53 @@ def setup_plex(plex_url: str = Form(...), plex_token: str = Form(...), db: Sessi
     return RedirectResponse(url="/setup", status_code=303)
 
 
-@app.get("/api/plex/settings")
+@app.get("/api/plex/settings", deprecated=True)
 def plex_settings(db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
-    snapshot = get_plex_connection_snapshot(app_settings)
-    libraries = snapshot["libraries"]
-    error = snapshot["connection_error"]
-    if error:
-        status = error
-    elif app_settings.plex_url and app_settings.plex_token:
-        status = "Connected"
-    else:
-        status = "Not configured"
+    payload = _plex_connection_payload(app_settings)
+    status = payload["connection_error"] or (
+        "Connected" if payload["connection_status"] == "connected" else "Not configured"
+    )
     return {
-        "plex_url": app_settings.plex_url or "",
+        "plex_url": payload["plex_url"],
         "plex_token": app_settings.plex_token or "",
-        "plex_music_section_id": app_settings.plex_music_section_id or "",
-        "popularity_weight": _clamp_popularity_weight(app_settings.popularity_weight),
-        "libraries": libraries,
+        "plex_music_section_id": payload["plex_music_section_id"],
+        "popularity_weight": payload["popularity_weight"],
+        "libraries": payload["libraries"],
         "status": status,
-        "status_ok": error is None and bool(app_settings.plex_url and app_settings.plex_token),
+        "status_ok": payload["connection_status"] == "connected",
     }
 
 
-@app.post("/api/plex/settings")
+@app.post("/api/plex/settings", deprecated=True)
 def save_plex_settings(
     plex_url: str = Form(...),
     plex_token: str = Form(...),
     popularity_weight: float = Form(DEFAULT_POPULARITY_WEIGHT),
     db: Session = Depends(get_db),
 ):
+    payload = PlexSettingsUpdateRequest(
+        plex_url=plex_url,
+        plex_token=plex_token,
+        popularity_weight=popularity_weight,
+    )
     app_settings = _get_or_create_settings(db)
-    app_settings.plex_url = plex_url.strip().rstrip("/")
-    app_settings.plex_token = plex_token.strip()
-    app_settings.popularity_weight = _clamp_popularity_weight(popularity_weight)
+    app_settings.plex_url = payload.plex_url.strip().rstrip("/")
+    app_settings.plex_token = payload.plex_token.strip()
+    if payload.popularity_weight is not None:
+        app_settings.popularity_weight = _clamp_popularity_weight(payload.popularity_weight)
     db.add(app_settings)
     db.commit()
     db.refresh(app_settings)
-
-    snapshot = get_plex_connection_snapshot(app_settings)
-    libraries = snapshot["libraries"]
-    error = snapshot["connection_error"]
+    response_payload = _plex_connection_payload(app_settings)
     return {
-        "plex_url": app_settings.plex_url or "",
+        "plex_url": response_payload["plex_url"],
         "plex_token": app_settings.plex_token or "",
-        "plex_music_section_id": app_settings.plex_music_section_id or "",
-        "popularity_weight": _clamp_popularity_weight(app_settings.popularity_weight),
-        "libraries": libraries,
-        "status": error or "Connected",
-        "status_ok": error is None,
+        "plex_music_section_id": response_payload["plex_music_section_id"],
+        "popularity_weight": response_payload["popularity_weight"],
+        "libraries": response_payload["libraries"],
+        "status": response_payload["connection_error"] or "Connected",
+        "status_ok": response_payload["connection_status"] == "connected",
     }
 
 
@@ -1995,7 +1996,7 @@ def setup_library(plex_music_section_id: str = Form(...), db: Session = Depends(
     return RedirectResponse(url="/setup", status_code=303)
 
 
-@app.post("/api/plex/library")
+@app.post("/api/plex/library", deprecated=True)
 def save_plex_library(plex_music_section_id: str = Form(...), db: Session = Depends(get_db)):
     app_settings = _get_or_create_settings(db)
     app_settings.plex_music_section_id = plex_music_section_id
@@ -2033,6 +2034,8 @@ def update_settings_plex(
     app_settings = _get_or_create_settings(db)
     app_settings.plex_url = payload.plex_url.strip().rstrip("/")
     app_settings.plex_token = payload.plex_token.strip()
+    if payload.popularity_weight is not None:
+        app_settings.popularity_weight = _clamp_popularity_weight(payload.popularity_weight)
     db.add(app_settings)
     db.commit()
     db.refresh(app_settings)
