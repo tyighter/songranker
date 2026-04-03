@@ -1153,7 +1153,7 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
     providers = _make_youtube_provider_chain()
     last_network_error: YouTubeLookupError | None = None
     saw_known_non_embeddable = False
-    first_unknown_candidate: dict[str, str] | None = None
+    saw_unknown_embeddability = False
     for provider in providers:
         try:
             embeddable_matches = provider.search(query, embeddable_only=True)
@@ -1214,8 +1214,8 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                         return result
                     if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED:
                         saw_known_non_embeddable = True
-                    if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED and first_unknown_candidate is None:
-                        first_unknown_candidate = candidate
+                    if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED:
+                        saw_unknown_embeddability = True
                 _log_youtube_lookup(
                     "lookup_candidate_scan",
                     title=title,
@@ -1225,7 +1225,7 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                     query=query,
                     candidate_count=len(any_matches),
                     saw_known_non_embeddable=saw_known_non_embeddable,
-                    saw_unknown_embeddability=first_unknown_candidate is not None,
+                    saw_unknown_embeddability=saw_unknown_embeddability,
                 )
         except YouTubeLookupError as exc:
             if exc.code == "youtube_network_failure":
@@ -1251,28 +1251,31 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
             )
             continue
 
-    if first_unknown_candidate:
-        result = {
-            "result": "ok",
-            "video_id": first_unknown_candidate.get("video_id"),
-            "source": str(first_unknown_candidate.get("provider") or "provider_chain"),
-            "provider": str(first_unknown_candidate.get("provider") or "provider_chain"),
+    if saw_unknown_embeddability:
+        failure = {
+            "result": "error",
+            "code": "video_embeddability_unverified",
+            "message": "Unable to verify YouTube embeddability for this song.",
+            "source": "provider_chain",
+            "provider": "provider_chain",
             "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
-            "message": "Lookup succeeded, embeddability could not be verified.",
         }
-        _set_cached_youtube_lookup(title, artist, result)
-        _set_persistent_youtube_lookup_cache(db, title, artist, result)
+        _set_cached_youtube_lookup(title, artist, failure)
+        _set_persistent_youtube_lookup_cache(db, title, artist, failure)
         _log_youtube_lookup(
             "lookup_embeddability_unknown",
             title=title,
             artist=artist,
-            source=result["source"],
-            provider=result["provider"],
+            source=failure["source"],
+            provider=failure["provider"],
             query=query,
-            video_id=result["video_id"],
-            embeddability_confidence=result["embeddability_confidence"],
+            embeddability_confidence=failure["embeddability_confidence"],
         )
-        return result
+        raise YouTubeLookupError(
+            code=failure["code"],
+            message=failure["message"],
+            source=failure["source"],
+        )
 
     if saw_known_non_embeddable:
         failure = {
@@ -2015,7 +2018,7 @@ def get_first_youtube_video(
         status_code = 404
         if exc.code == "youtube_network_failure":
             status_code = 502
-        elif exc.code == "video_not_embeddable":
+        elif exc.code in {"video_not_embeddable", "video_embeddability_unverified"}:
             status_code = 422
         _log_youtube_lookup(
             "lookup_failed",

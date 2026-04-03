@@ -10,6 +10,8 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 2112
       DATABASE_URL: sqlite+pysqlite:////data/songranker.db
+      YOUTUBE_DATA_API_KEY: AIzaSyAUfu_ywog680o3KTjEMqrVlVX0HXaTaI0
+      YOUTUBE_SEARCH_FALLBACK_PROVIDER: disabled
     volumes:
       - songranker_data:/data
 
