@@ -346,15 +346,12 @@
           <button id="clear-rankings-modal-filters-btn" type="button" class="btn-ghost">Clear</button>
         </div>
       </form>
-      <h3>Personal top ten</h3>
+      <h3>Personal top ten artists</h3>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Rank</th>
-              <th>Song Name</th>
-              <th>Artist Name</th>
-              <th class="hide-sm">Year</th>
+              <th>Artist</th>
               <th>Total Matchups</th>
               <th>Wins</th>
               <th>Losses</th>
@@ -364,15 +361,12 @@
         </table>
       </div>
 
-      <h3>Global top ten</h3>
+      <h3>Global top ten artists</h3>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Rank</th>
-              <th>Song Name</th>
-              <th>Artist Name</th>
-              <th class="hide-sm">Year</th>
+              <th>Artist</th>
               <th>Total Matchups</th>
               <th>Wins</th>
               <th>Losses</th>
@@ -1125,53 +1119,50 @@
         }
       }
 
-      function renderTopTenRows(rows, tableBodyEl) {
+      function renderTopTenArtistRows(rows, tableBodyEl) {
         tableBodyEl.innerHTML = (rows || []).map((row) => `
           <tr>
-            <td>${row.rank}</td>
-            <td>${row.title}</td>
             <td>${row.artist}</td>
-            <td class="hide-sm">${row.year || ""}</td>
-            <td>${row.vote_count || 0}</td>
-            <td>${row.winner_count || 0}</td>
-            <td>${row.loser_count || 0}</td>
+            <td>${row.total_matchups || 0}</td>
+            <td>${row.wins || 0}</td>
+            <td>${row.losses || 0}</td>
           </tr>
         `).join("");
       }
 
       async function loadTopTenRankings() {
         const modalFilters = collectFiltersFromInputs(rankingsFilterDecadeEl, rankingsFilterArtistEl, rankingsFilterAlbumEl);
-        rankingsModalStatusEl.textContent = "Loading top ten rankings...";
-        renderLoadingRow(personalTopTenBodyEl, 7);
-        renderLoadingRow(globalTopTenBodyEl, 7);
-        const personalParams = paramsFromObject({ ...modalFilters, scope: "personal", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
-        const globalParams = paramsFromObject({ ...modalFilters, scope: "global", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
+        rankingsModalStatusEl.textContent = "Loading top ten artists (sorted by total matchups)...";
+        renderLoadingRow(personalTopTenBodyEl, 4);
+        renderLoadingRow(globalTopTenBodyEl, 4);
+        const personalParams = paramsFromObject({ ...modalFilters, scope: "personal", sort_by: "total_matchups", sort_dir: "desc", page: 1, page_size: 10 });
+        const globalParams = paramsFromObject({ ...modalFilters, scope: "global", sort_by: "total_matchups", sort_dir: "desc", page: 1, page_size: 10 });
         try {
           const [personalResponse, globalResponse] = await Promise.all([
-            fetch(`/api/rankings?${personalParams}`),
-            fetch(`/api/rankings?${globalParams}`),
+            fetch(`/api/rankings/artists?${personalParams}`),
+            fetch(`/api/rankings/artists?${globalParams}`),
           ]);
           const personalPayload = await personalResponse.json().catch(() => ({ rows: [] }));
           const globalPayload = await globalResponse.json().catch(() => ({ rows: [] }));
 
           if (!personalResponse.ok || !globalResponse.ok) {
-            rankingsModalStatusEl.textContent = personalPayload.detail || globalPayload.detail || "Failed to load top ten rankings.";
-            renderErrorRow(personalTopTenBodyEl, 7);
-            renderErrorRow(globalTopTenBodyEl, 7);
+            rankingsModalStatusEl.textContent = personalPayload.detail || globalPayload.detail || "Failed to load top ten artists.";
+            renderErrorRow(personalTopTenBodyEl, 4);
+            renderErrorRow(globalTopTenBodyEl, 4);
             return;
           }
 
           const personalRows = personalPayload.rows || [];
           const globalRows = globalPayload.rows || [];
-          if (!personalRows.length) renderEmptyRow(personalTopTenBodyEl, 7);
-          else renderTopTenRows(personalRows, personalTopTenBodyEl);
-          if (!globalRows.length) renderEmptyRow(globalTopTenBodyEl, 7);
-          else renderTopTenRows(globalRows, globalTopTenBodyEl);
-          rankingsModalStatusEl.textContent = "Top ten rankings updated.";
+          if (!personalRows.length) renderEmptyRow(personalTopTenBodyEl, 4);
+          else renderTopTenArtistRows(personalRows, personalTopTenBodyEl);
+          if (!globalRows.length) renderEmptyRow(globalTopTenBodyEl, 4);
+          else renderTopTenArtistRows(globalRows, globalTopTenBodyEl);
+          rankingsModalStatusEl.textContent = "Top ten artists updated.";
         } catch (_error) {
-          rankingsModalStatusEl.textContent = "Failed to load top ten rankings.";
-          renderErrorRow(personalTopTenBodyEl, 7);
-          renderErrorRow(globalTopTenBodyEl, 7);
+          rankingsModalStatusEl.textContent = "Failed to load top ten artists.";
+          renderErrorRow(personalTopTenBodyEl, 4);
+          renderErrorRow(globalTopTenBodyEl, 4);
         }
       }
 
