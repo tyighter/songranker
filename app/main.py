@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
@@ -34,6 +35,7 @@ from app.models import (
     RatingScoreSnapshot,
     Song,
     User,
+    UserIdentity,
     UserSession,
     UserSkippedSong,
     YouTubeLookupCache,
@@ -47,7 +49,9 @@ POPULARITY_USER_RATING_MAX = 10.0
 POPULARITY_COUNT_WEIGHT = 0.75
 POPULARITY_USER_RATING_WEIGHT = 0.25
 SESSION_COOKIE_NAME = "songranker_session"
+OIDC_LOGIN_COOKIE_NAME = "songranker_oidc_login"
 SESSION_TTL_DAYS = 30
+OIDC_LOGIN_TTL_SECONDS = 600
 LOG_FILE_PATH = Path("/log.log")
 logger = logging.getLogger(__name__)
 YOUTUBE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -222,6 +226,99 @@ def _create_session_for_user(db: Session, user_id: int) -> str:
     )
     db.commit()
     return token
+
+
+def _oidc_signing_key() -> bytes:
+    return settings.google_client_secret.encode("utf-8")
+
+
+def _urlsafe_b64encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _urlsafe_b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _encode_signed_cookie(payload: dict[str, Any]) -> str:
+    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_encoded = _urlsafe_b64encode(payload_bytes)
+    signature = hmac.new(_oidc_signing_key(), payload_encoded.encode("utf-8"), hashlib.sha256).digest()
+    return f"{payload_encoded}.{_urlsafe_b64encode(signature)}"
+
+
+def _decode_signed_cookie(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value or "." not in raw_value:
+        return None
+
+    payload_encoded, signature_encoded = raw_value.split(".", 1)
+    expected_signature = hmac.new(_oidc_signing_key(), payload_encoded.encode("utf-8"), hashlib.sha256).digest()
+    try:
+        received_signature = _urlsafe_b64decode(signature_encoded)
+    except Exception:
+        return None
+    if not hmac.compare_digest(expected_signature, received_signature):
+        return None
+
+    try:
+        decoded = json.loads(_urlsafe_b64decode(payload_encoded))
+    except Exception:
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return decoded
+
+
+def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = urlencode(payload).encode("utf-8")
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    req = Request(url, method=method, headers=headers, data=data)
+    with urlopen(req, timeout=10) as resp:
+        body = resp.read().decode("utf-8")
+    parsed = json.loads(body)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object response")
+    return parsed
+
+
+def _fetch_google_oidc_metadata() -> dict[str, Any]:
+    return _fetch_json(settings.google_oidc_discovery_url)
+
+
+def _decode_jwt_payload(jwt_token: str) -> dict[str, Any]:
+    parts = jwt_token.split(".")
+    if len(parts) != 3:
+        raise ValueError("Invalid JWT format")
+    payload_raw = _urlsafe_b64decode(parts[1])
+    payload = json.loads(payload_raw)
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid JWT payload")
+    return payload
+
+
+def _normalize_email_verified(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() == "true"
+    return False
+
+
+def _derive_username_from_email(db: Session, email: str) -> str:
+    local_part = email.split("@", 1)[0]
+    normalized = re.sub(r"[^a-z0-9_]", "_", local_part.lower()).strip("_")
+    base = normalized or "google_user"
+    candidate = base[:64]
+    suffix = 1
+    while db.query(User.id).filter(User.username == candidate).first() is not None:
+        suffix_text = f"_{suffix}"
+        candidate = f"{base[: max(1, 64 - len(suffix_text))]}{suffix_text}"
+        suffix += 1
+    return candidate
 
 
 def _session_redirect(url: str, token: str) -> RedirectResponse:
@@ -1325,6 +1422,202 @@ def signin(
 
     token = _create_session_for_user(db, user.id)
     return _session_redirect(url="/", token=token)
+
+
+@app.get("/api/auth/google/start")
+def google_auth_start(db: Session = Depends(get_db)):
+    if not settings.google_client_id or not settings.google_client_secret or not settings.google_redirect_uri:
+        raise HTTPException(status_code=503, detail="Google OIDC is not configured")
+
+    metadata = _fetch_google_oidc_metadata()
+    authorization_endpoint = metadata.get("authorization_endpoint")
+    if not isinstance(authorization_endpoint, str) or not authorization_endpoint:
+        raise HTTPException(status_code=502, detail="OIDC discovery missing authorization endpoint")
+
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    now = int(datetime.now(timezone.utc).timestamp())
+    signed_state = _encode_signed_cookie({"state": state, "nonce": nonce, "exp": now + OIDC_LOGIN_TTL_SECONDS})
+
+    params = {
+        "client_id": settings.google_client_id,
+        "redirect_uri": settings.google_redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "nonce": nonce,
+        "prompt": "select_account",
+    }
+    redirect_url = f"{authorization_endpoint}?{urlencode(params)}"
+    response = RedirectResponse(url=redirect_url, status_code=303)
+    response.set_cookie(
+        key=OIDC_LOGIN_COOKIE_NAME,
+        value=signed_state,
+        max_age=OIDC_LOGIN_TTL_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/api/auth/google/callback")
+def google_auth_callback(
+    request: StarletteRequest,
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+    confirm_link: int = Query(default=0),
+    db: Session = Depends(get_db),
+):
+    if error:
+        detail = quote(error_description or error)
+        if error == "access_denied":
+            return RedirectResponse(url=f"/?auth_error=google_consent_denied&detail={detail}", status_code=303)
+        return RedirectResponse(url=f"/?auth_error=google_auth_error&detail={detail}", status_code=303)
+
+    signed = _decode_signed_cookie(request.cookies.get(OIDC_LOGIN_COOKIE_NAME))
+    if signed is None:
+        response = RedirectResponse(url="/?auth_error=google_state_missing", status_code=303)
+        response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+        return response
+
+    expected_state = signed.get("state")
+    expected_nonce = signed.get("nonce")
+    expires_at = signed.get("exp")
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    if (
+        not isinstance(expected_state, str)
+        or not isinstance(expected_nonce, str)
+        or not isinstance(expires_at, int)
+        or expires_at < now_ts
+        or not state
+        or state != expected_state
+    ):
+        response = RedirectResponse(url="/?auth_error=google_state_mismatch", status_code=303)
+        response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+        return response
+
+    if not code:
+        response = RedirectResponse(url="/?auth_error=google_missing_code", status_code=303)
+        response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+        return response
+
+    try:
+        metadata = _fetch_google_oidc_metadata()
+        token_endpoint = metadata.get("token_endpoint")
+        issuer = metadata.get("issuer")
+        if not isinstance(token_endpoint, str) or not token_endpoint:
+            raise ValueError("OIDC discovery missing token endpoint")
+        if not isinstance(issuer, str) or not issuer:
+            raise ValueError("OIDC discovery missing issuer")
+
+        token_response = _fetch_json(
+            token_endpoint,
+            method="POST",
+            payload={
+                "code": code,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": settings.google_redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
+        id_token = token_response.get("id_token")
+        if not isinstance(id_token, str) or not id_token:
+            raise ValueError("Token response missing id_token")
+
+        token_info = _fetch_json(
+            f"https://oauth2.googleapis.com/tokeninfo?id_token={quote(id_token, safe='')}",
+            method="GET",
+        )
+        claims = _decode_jwt_payload(id_token)
+
+        claim_iss = claims.get("iss")
+        claim_aud = claims.get("aud")
+        claim_exp = claims.get("exp")
+        claim_nonce = claims.get("nonce")
+        claim_sub = claims.get("sub")
+        claim_email = claims.get("email")
+        claim_email_verified = _normalize_email_verified(claims.get("email_verified"))
+
+        if claim_iss != issuer or token_info.get("iss") != issuer:
+            raise ValueError("Issuer mismatch")
+        if claim_aud != settings.google_client_id or token_info.get("aud") != settings.google_client_id:
+            raise ValueError("Audience mismatch")
+        if not isinstance(claim_exp, int) or claim_exp <= now_ts:
+            raise ValueError("ID token expired")
+        if claim_nonce != expected_nonce:
+            response = RedirectResponse(url="/?auth_error=google_nonce_mismatch", status_code=303)
+            response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+            return response
+        if not isinstance(claim_sub, str) or not claim_sub:
+            raise ValueError("Missing sub claim")
+        if not isinstance(claim_email, str) or not claim_email:
+            raise ValueError("Missing email claim")
+        if not claim_email_verified:
+            raise ValueError("Email is not verified")
+
+        identity = (
+            db.query(UserIdentity)
+            .filter(UserIdentity.provider == "google", UserIdentity.provider_subject == claim_sub)
+            .first()
+        )
+        user: User | None = None
+        if identity is not None:
+            user = db.query(User).filter(User.id == identity.user_id).first()
+            if user is None:
+                raise ValueError("Linked user no longer exists")
+        else:
+            existing_user = db.query(User).filter(func.lower(User.email) == claim_email.lower()).first()
+            if existing_user is not None and confirm_link != 1:
+                response = RedirectResponse(url="/?auth_error=google_link_confirmation_required", status_code=303)
+                response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+                return response
+
+            if existing_user is None:
+                user = User(
+                    username=_derive_username_from_email(db, claim_email),
+                    email=claim_email,
+                    password_hash=_hash_password(secrets.token_urlsafe(48)),
+                )
+                db.add(user)
+                db.flush()
+            else:
+                user = existing_user
+
+            conflicting_identity = (
+                db.query(UserIdentity)
+                .filter(UserIdentity.provider == "google", UserIdentity.user_id == user.id)
+                .first()
+            )
+            if conflicting_identity is not None and conflicting_identity.provider_subject != claim_sub:
+                response = RedirectResponse(url="/?auth_error=google_duplicate_link_conflict", status_code=303)
+                response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+                return response
+
+            db.add(
+                UserIdentity(
+                    user_id=user.id,
+                    provider="google",
+                    provider_subject=claim_sub,
+                    email=claim_email,
+                    email_verified=claim_email_verified,
+                )
+            )
+        db.commit()
+        token = _create_session_for_user(db, user.id)
+    except Exception as exc:
+        logger.exception("Google OIDC callback failed: %s", exc)
+        db.rollback()
+        response = RedirectResponse(url="/?auth_error=google_invalid_token", status_code=303)
+        response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+        return response
+
+    response = _session_redirect(url="/", token=token)
+    response.delete_cookie(OIDC_LOGIN_COOKIE_NAME)
+    return response
 
 
 @app.post("/api/auth/switch-user")
