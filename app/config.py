@@ -1,6 +1,13 @@
 import os
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings:
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "2112"))
@@ -20,6 +27,19 @@ class Settings:
     google_oidc_discovery_url: str = os.getenv(
         "GOOGLE_OIDC_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration"
     )
+    app_env: str = os.getenv("APP_ENV", "local").strip().lower()
+    session_cookie_secure: bool = _env_bool("SESSION_COOKIE_SECURE", default=app_env not in {"local", "development"})
+    session_cookie_samesite: str = (
+        os.getenv("SESSION_COOKIE_SAMESITE", "lax").strip().lower()
+        if os.getenv("SESSION_COOKIE_SAMESITE")
+        else "lax"
+    )
+    session_cookie_domain: str | None = os.getenv("SESSION_COOKIE_DOMAIN")
+    session_ttl_days: int = int(os.getenv("SESSION_TTL_DAYS", "30"))
+    allow_auth_switch_user: bool = _env_bool(
+        "ALLOW_AUTH_SWITCH_USER",
+        default=app_env in {"local", "development"},
+    )
 
     @property
     def database_url(self) -> str:
@@ -29,6 +49,20 @@ class Settings:
             f"postgresql+psycopg://{self.db_user}:{self.db_password}@"
             f"{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def normalized_session_cookie_samesite(self) -> str:
+        value = self.session_cookie_samesite.strip().lower()
+        if value not in {"lax", "strict"}:
+            return "lax"
+        return value
+
+    @property
+    def normalized_session_cookie_domain(self) -> str | None:
+        if not self.session_cookie_domain:
+            return None
+        normalized = self.session_cookie_domain.strip()
+        return normalized or None
 
 
 settings = Settings()
