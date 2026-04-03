@@ -16,6 +16,26 @@ class User(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class UserIdentity(Base):
+    __tablename__ = "user_identities"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_subject", name="uq_user_identities_provider_subject"),
+        UniqueConstraint("user_id", "provider", name="uq_user_identities_user_provider"),
+    )
+
+
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
@@ -141,5 +161,15 @@ def _assign_bigint_pk_for_sqlite(mapper, connection, target):
     target.id = secrets.randbits(63)
 
 
-for model in (User, UserSession, Song, PairwiseVote, RatingScore, RatingScoreSnapshot, UserSkippedSong, YouTubeLookupCache):
+for model in (
+    User,
+    UserIdentity,
+    UserSession,
+    Song,
+    PairwiseVote,
+    RatingScore,
+    RatingScoreSnapshot,
+    UserSkippedSong,
+    YouTubeLookupCache,
+):
     event.listen(model, "before_insert", _assign_bigint_pk_for_sqlite)
