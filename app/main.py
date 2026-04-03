@@ -1585,8 +1585,18 @@ def signin(
 
 @app.get("/api/auth/google/start")
 def google_auth_start(db: Session = Depends(get_db)):
-    if not settings.google_client_id or not settings.google_client_secret or not settings.google_redirect_uri:
-        raise HTTPException(status_code=503, detail="Google OIDC is not configured")
+    missing_fields: list[str] = []
+    if not settings.google_client_id:
+        missing_fields.append("GOOGLE_CLIENT_ID")
+    if not settings.google_client_secret:
+        missing_fields.append("GOOGLE_CLIENT_SECRET")
+    if not settings.google_redirect_uri:
+        missing_fields.append("GOOGLE_REDIRECT_URI")
+    if missing_fields:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Google OIDC is not configured; missing: {', '.join(missing_fields)}",
+        )
 
     metadata = _fetch_google_oidc_metadata()
     authorization_endpoint = metadata.get("authorization_endpoint")

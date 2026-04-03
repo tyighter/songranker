@@ -9,9 +9,13 @@ services:
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 2112
+      APP_ENV: local
       DATABASE_URL: sqlite+pysqlite:////data/songranker.db
-      YOUTUBE_DATA_API_KEY: AIzaSyAUfu_ywog680o3KTjEMqrVlVX0HXaTaI0
+      YOUTUBE_DATA_API_KEY: ${YOUTUBE_DATA_API_KEY:-}
       YOUTUBE_SEARCH_FALLBACK_PROVIDER: disabled
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:2112/api/auth/google/callback}
     volumes:
       - songranker_data:/data
 
