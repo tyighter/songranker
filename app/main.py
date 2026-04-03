@@ -134,6 +134,14 @@ class RankingsResponse(BaseModel):
     rows: list[dict[str, Any]]
 
 
+class ArtistRankingsResponse(BaseModel):
+    filters: dict[str, Any]
+    sort_by: str
+    sort_dir: str
+    total: int
+    rows: list[dict[str, Any]]
+
+
 class VoteHistoryResponse(BaseModel):
     filters: dict[str, Any]
     page: int
@@ -2438,6 +2446,93 @@ def get_rankings(
     start = (page - 1) * page_size
     end = start + page_size
     return RankingsResponse(
+        filters={**filters, "scope": scope},
+        sort_by=sort_by,
+        sort_dir="desc" if reverse else "asc",
+        total=len(rows),
+        rows=rows[start:end],
+    )
+
+
+@app.get("/api/rankings/artists", response_model=ArtistRankingsResponse)
+def get_artist_rankings(
+    artist: str | None = Query(default=None),
+    album: str | None = Query(default=None),
+    decade: str | None = Query(default=None),
+    scope: str = Query(default="personal"),
+    sort_by: str = Query(default="total_matchups"),
+    sort_dir: str = Query(default="desc"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    filters: dict[str, Any] = {}
+    if artist:
+        filters["artist"] = artist
+    if album:
+        filters["album"] = album
+    if normalized_decade := _normalize_decade(decade):
+        filters["decade"] = normalized_decade
+
+    scope = (scope or "personal").lower()
+    if scope not in {"personal", "global"}:
+        raise HTTPException(status_code=400, detail="Invalid rankings scope; expected personal or global")
+
+    songs = _apply_filters(db.query(Song), filters).order_by(Song.id.asc()).all()
+    if not songs:
+        return ArtistRankingsResponse(
+            filters={**filters, "scope": scope},
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            total=0,
+            rows=[],
+        )
+
+    song_ids = [song.id for song in songs]
+    winner_query = db.query(Song.artist, func.count(PairwiseVote.id)).join(Song, Song.id == PairwiseVote.winner_song_id)
+    loser_query = db.query(Song.artist, func.count(PairwiseVote.id)).join(Song, Song.id == PairwiseVote.loser_song_id)
+    if scope == "personal":
+        winner_query = winner_query.filter(PairwiseVote.user_id == current_user.id)
+        loser_query = loser_query.filter(PairwiseVote.user_id == current_user.id)
+    winner_counts = winner_query.filter(Song.id.in_(song_ids)).group_by(Song.artist).all()
+    loser_counts = loser_query.filter(Song.id.in_(song_ids)).group_by(Song.artist).all()
+
+    by_artist: dict[str, dict[str, Any]] = {}
+    for artist_name, count in winner_counts:
+        by_artist[artist_name] = {
+            "artist": artist_name,
+            "wins": count,
+            "losses": 0,
+            "total_matchups": count,
+        }
+    for artist_name, count in loser_counts:
+        row = by_artist.get(artist_name)
+        if row is None:
+            row = {"artist": artist_name, "wins": 0, "losses": 0, "total_matchups": 0}
+            by_artist[artist_name] = row
+        row["losses"] += count
+        row["total_matchups"] += count
+
+    rows = list(by_artist.values())
+    rows.sort(key=lambda row: (-row["total_matchups"], -row["wins"], row["artist"]))
+    for index, row in enumerate(rows, start=1):
+        row["rank"] = index
+
+    reverse = sort_dir.lower() == "desc"
+    if sort_by == "wins":
+        rows.sort(key=lambda row: (row["wins"], row["rank"]), reverse=reverse)
+    elif sort_by == "losses":
+        rows.sort(key=lambda row: (row["losses"], row["rank"]), reverse=reverse)
+    elif sort_by == "artist":
+        rows.sort(key=lambda row: (row["artist"], row["rank"]), reverse=reverse)
+    else:
+        rows.sort(key=lambda row: (row["total_matchups"], row["rank"]), reverse=reverse)
+        sort_by = "total_matchups"
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    return ArtistRankingsResponse(
         filters={**filters, "scope": scope},
         sort_by=sort_by,
         sort_dir="desc" if reverse else "asc",
