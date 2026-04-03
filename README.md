@@ -141,6 +141,12 @@ By default, `docker-compose.yml` runs a single container and stores SQLite data 
 - `POST /api/settings/library`
   - JSON body: `plex_music_section_id`.
   - Persists the selected Plex music library section.
+- `POST /api/debug/youtube/cache/invalidate`
+  - Authenticated debug endpoint to invalidate YouTube lookup cache by `title` + `artist`, or clear full cache.
+  - JSON body:
+    - Entry-only clear: `{"title":"<song>","artist":"<artist>","clear_all":false}`
+    - Full clear: `{"clear_all":true}`
+  - Clears both in-memory cache (`_youtube_lookup_cache`) and persisted `youtube_lookup_cache` rows.
 
 `popularity_weight` scales track selection boost using a log transform (`log1p`) from `plex_rating_count=0` to a cap of `1,000,000` ratings; counts above the cap are treated as the cap.
 
@@ -167,3 +173,21 @@ When a manual resync fails (`POST /api/plex/resync`), the app now writes a full 
 Periodic hourly failures are logged with:
 
 - `Periodic Plex sync failed`
+
+## YouTube troubleshooting
+
+If YouTube lookups are stale after changing `YOUTUBE_DATA_API_KEY` or fallback provider settings, clear the lookup cache before retrying:
+
+- In the **Settings** modal, use **YouTube lookup debug**:
+  - **Clear entry + test lookup** to remove one `title + artist` cache entry and immediately re-run lookup.
+  - **Clear full YouTube cache** to remove all cached lookup results.
+- Or use curl for targeted invalidation:
+
+```bash
+curl -X POST "http://localhost:2112/api/debug/youtube/cache/invalidate" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: songranker_session=<session_cookie_value>" \
+  -d '{"title":"Song Title","artist":"Artist Name","clear_all":false}'
+```
+
+Use `{"clear_all":true}` to wipe all YouTube cache rows and in-memory entries.
