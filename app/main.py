@@ -905,6 +905,7 @@ def _read_json_from_url(full_url: str, *, timeout: int = 15) -> dict[str, Any]:
 
 YOUTUBE_CONFIDENCE_VERIFIED = "verified_embeddable"
 YOUTUBE_CONFIDENCE_UNVERIFIED = "unverified"
+YOUTUBE_CONFIDENCE_KNOWN_NON_EMBEDDABLE = "known_non_embeddable"
 YOUTUBE_CONFIDENCE_MANUAL_OVERRIDE = "manual_override"
 
 
@@ -931,9 +932,9 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
                 video_ids.append(video_id)
         return video_ids
 
-    def _fetch_embeddable_video_ids(self, video_ids: list[str]) -> set[str]:
+    def _fetch_video_embeddability(self, video_ids: list[str]) -> dict[str, str]:
         if not video_ids:
-            return set()
+            return {}
         status_params: dict[str, Any] = {
             "part": "status",
             "id": ",".join(video_ids),
@@ -942,16 +943,22 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
         }
         status_url = f"https://www.googleapis.com/youtube/v3/videos?{urlencode(status_params)}"
         payload = _read_json_from_url(status_url, timeout=15)
-        embeddable_ids: set[str] = set()
+        embeddability_by_id: dict[str, str] = {}
         for item in payload.get("items") or []:
             if not isinstance(item, dict):
                 continue
             video_id = item.get("id")
             status = item.get("status")
             embeddable = status.get("embeddable") if isinstance(status, dict) else None
-            if _is_valid_youtube_video_id(video_id) and embeddable is True:
-                embeddable_ids.add(video_id)
-        return embeddable_ids
+            if not _is_valid_youtube_video_id(video_id):
+                continue
+            if embeddable is True:
+                embeddability_by_id[video_id] = YOUTUBE_CONFIDENCE_VERIFIED
+            elif embeddable is False:
+                embeddability_by_id[video_id] = YOUTUBE_CONFIDENCE_KNOWN_NON_EMBEDDABLE
+            else:
+                embeddability_by_id[video_id] = YOUTUBE_CONFIDENCE_UNVERIFIED
+        return embeddability_by_id
 
     def search(self, query: str, *, embeddable_only: bool) -> list[dict[str, str]]:
         if not self.api_key:
@@ -973,7 +980,7 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
         try:
             payload = _read_json_from_url(api_url, timeout=15)
             candidate_video_ids = self._extract_video_ids(payload)
-            embeddable_ids = self._fetch_embeddable_video_ids(candidate_video_ids)
+            embeddability_by_id = self._fetch_video_embeddability(candidate_video_ids)
         except Exception as exc:
             raise YouTubeLookupError(
                 code="youtube_network_failure",
@@ -982,11 +989,12 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
             ) from exc
         candidates: list[dict[str, str]] = []
         for video_id in candidate_video_ids:
-            if video_id in embeddable_ids:
+            confidence = embeddability_by_id.get(video_id, YOUTUBE_CONFIDENCE_UNVERIFIED)
+            if confidence == YOUTUBE_CONFIDENCE_VERIFIED:
                 candidates.append(
                     {
                         "video_id": video_id,
-                        "embeddability_confidence": YOUTUBE_CONFIDENCE_VERIFIED,
+                        "embeddability_confidence": confidence,
                         "provider": self.name,
                     }
                 )
@@ -994,7 +1002,7 @@ class YouTubeDataApiSearchProvider(YouTubeSearchProvider):
                 candidates.append(
                     {
                         "video_id": video_id,
-                        "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
+                        "embeddability_confidence": confidence,
                         "provider": self.name,
                     }
                 )
@@ -1289,7 +1297,7 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                             embeddability_confidence=result["embeddability_confidence"],
                         )
                         return result
-                    if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED:
+                    if confidence == YOUTUBE_CONFIDENCE_KNOWN_NON_EMBEDDABLE:
                         saw_known_non_embeddable = True
                     if confidence == YOUTUBE_CONFIDENCE_UNVERIFIED:
                         saw_unknown_embeddability = True
@@ -1328,6 +1336,23 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
             )
             continue
 
+    if saw_known_non_embeddable:
+        failure = {
+            "result": "error",
+            "code": "video_not_embeddable",
+            "message": "Only non-embeddable YouTube videos were found for the requested song.",
+            "source": "provider_chain",
+            "provider": "provider_chain",
+            "embeddability_confidence": YOUTUBE_CONFIDENCE_KNOWN_NON_EMBEDDABLE,
+        }
+        _set_cached_youtube_lookup(title, artist, failure)
+        _set_persistent_youtube_lookup_cache(db, title, artist, failure)
+        raise YouTubeLookupError(
+            code=failure["code"],
+            message=failure["message"],
+            source=failure["source"],
+        )
+
     if saw_unknown_embeddability:
         failure = {
             "result": "error",
@@ -1348,23 +1373,6 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
             query=query,
             embeddability_confidence=failure["embeddability_confidence"],
         )
-        raise YouTubeLookupError(
-            code=failure["code"],
-            message=failure["message"],
-            source=failure["source"],
-        )
-
-    if saw_known_non_embeddable:
-        failure = {
-            "result": "error",
-            "code": "video_not_embeddable",
-            "message": "Only non-embeddable YouTube videos were found for the requested song.",
-            "source": "provider_chain",
-            "provider": "provider_chain",
-            "embeddability_confidence": YOUTUBE_CONFIDENCE_UNVERIFIED,
-        }
-        _set_cached_youtube_lookup(title, artist, failure)
-        _set_persistent_youtube_lookup_cache(db, title, artist, failure)
         raise YouTubeLookupError(
             code=failure["code"],
             message=failure["message"],
