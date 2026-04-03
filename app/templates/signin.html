@@ -15,10 +15,14 @@
 
     <section class="panel">
       <h2>Sign in</h2>
+      {% if google_auth_available %}
       <form method="get" action="/api/auth/google/start">
         <button type="submit" class="btn-primary">Continue with Google</button>
       </form>
       <p class="helper-text">Prefer your Google account? Use it here, or sign in locally below.</p>
+      {% else %}
+      <p class="helper-text">Google sign-in is not configured on this server. Use your local credentials below.</p>
+      {% endif %}
       <form method="post" action="/api/auth/signin" id="signin-form">
         <label>Username <input type="text" name="username" required /></label>
         <p class="helper-text">Use the username you created (letters, numbers, underscore, or dash).</p>
