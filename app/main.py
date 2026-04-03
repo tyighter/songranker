@@ -1890,6 +1890,8 @@ def get_rankings(
     reverse = sort_dir.lower() == "desc"
     if sort_by == "score":
         rows.sort(key=lambda row: (row["score"], row["rank"]), reverse=reverse)
+    elif sort_by == "vote_count":
+        rows.sort(key=lambda row: (row["vote_count"], row["rank"]), reverse=reverse)
     elif sort_by == "artist":
         rows.sort(key=lambda row: (row["artist"] or "", row["title"], row["rank"]), reverse=reverse)
     elif sort_by == "album":

@@ -146,6 +146,7 @@
                   <tr>
                     <th><button type="button" class="sort-btn btn-ghost" data-sort="rank">Rank</button></th>
                     <th><button type="button" class="sort-btn btn-ghost" data-sort="score">Score</button></th>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="vote_count">Matchups</button></th>
                     <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist</button></th>
                     <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="album">Album</button></th>
                     <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="year">Year</button></th>
@@ -316,6 +317,7 @@
             <tr>
               <th>Rank</th>
               <th>Score</th>
+              <th>Matchups</th>
               <th>Artist</th>
               <th class="hide-sm">Album</th>
               <th class="hide-sm">Year</th>
@@ -333,6 +335,7 @@
             <tr>
               <th>Rank</th>
               <th>Score</th>
+              <th>Matchups</th>
               <th>Artist</th>
               <th class="hide-sm">Album</th>
               <th class="hide-sm">Year</th>
@@ -1036,19 +1039,19 @@
 
       async function loadRankings() {
         statusEl.textContent = "Loading rankings...";
-        renderLoadingRow(rankingsBodyEl, 6);
+        renderLoadingRow(rankingsBodyEl, 7);
         const params = { ...collectFilters(), ...rankingSort, page: 1, page_size: 100 };
         try {
           const response = await fetch(`/api/rankings?${paramsFromObject(params)}`);
           const payload = await response.json().catch(() => ({ rows: [] }));
           if (!response.ok) {
             statusEl.textContent = payload.detail || "Unable to load rankings.";
-            renderErrorRow(rankingsBodyEl, 6);
+            renderErrorRow(rankingsBodyEl, 7);
             return;
           }
           const rows = payload.rows || [];
           if (!rows.length) {
-            renderEmptyRow(rankingsBodyEl, 6);
+            renderEmptyRow(rankingsBodyEl, 7);
             statusEl.textContent = "No rankings for current filters.";
             return;
           }
@@ -1056,6 +1059,7 @@
             <tr>
               <td>${row.rank}</td>
               <td>${row.score}</td>
+              <td>${row.vote_count || 0}</td>
               <td>${row.artist}</td>
               <td class="hide-sm">${row.album || ""}</td>
               <td class="hide-sm">${row.year || ""}</td>
@@ -1065,7 +1069,7 @@
           statusEl.textContent = "Rankings updated.";
         } catch (_error) {
           statusEl.textContent = "Unable to load rankings.";
-          renderErrorRow(rankingsBodyEl, 6);
+          renderErrorRow(rankingsBodyEl, 7);
         }
       }
 
@@ -1074,6 +1078,7 @@
           <tr>
             <td>${row.rank}</td>
             <td>${row.score}</td>
+            <td>${row.vote_count || 0}</td>
             <td>${row.artist}</td>
             <td class="hide-sm">${row.album || ""}</td>
             <td class="hide-sm">${row.year || ""}</td>
@@ -1085,8 +1090,8 @@
       async function loadTopTenRankings() {
         const modalFilters = collectFiltersFromInputs(rankingsFilterDecadeEl, rankingsFilterArtistEl, rankingsFilterAlbumEl);
         rankingsModalStatusEl.textContent = "Loading top ten rankings...";
-        renderLoadingRow(personalTopTenBodyEl, 6);
-        renderLoadingRow(globalTopTenBodyEl, 6);
+        renderLoadingRow(personalTopTenBodyEl, 7);
+        renderLoadingRow(globalTopTenBodyEl, 7);
         const personalParams = paramsFromObject({ ...modalFilters, scope: "personal", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
         const globalParams = paramsFromObject({ ...modalFilters, scope: "global", sort_by: "rank", sort_dir: "asc", page: 1, page_size: 10 });
         try {
@@ -1099,22 +1104,22 @@
 
           if (!personalResponse.ok || !globalResponse.ok) {
             rankingsModalStatusEl.textContent = personalPayload.detail || globalPayload.detail || "Failed to load top ten rankings.";
-            renderErrorRow(personalTopTenBodyEl, 6);
-            renderErrorRow(globalTopTenBodyEl, 6);
+            renderErrorRow(personalTopTenBodyEl, 7);
+            renderErrorRow(globalTopTenBodyEl, 7);
             return;
           }
 
           const personalRows = personalPayload.rows || [];
           const globalRows = globalPayload.rows || [];
-          if (!personalRows.length) renderEmptyRow(personalTopTenBodyEl, 6);
+          if (!personalRows.length) renderEmptyRow(personalTopTenBodyEl, 7);
           else renderTopTenRows(personalRows, personalTopTenBodyEl);
-          if (!globalRows.length) renderEmptyRow(globalTopTenBodyEl, 6);
+          if (!globalRows.length) renderEmptyRow(globalTopTenBodyEl, 7);
           else renderTopTenRows(globalRows, globalTopTenBodyEl);
           rankingsModalStatusEl.textContent = "Top ten rankings updated.";
         } catch (_error) {
           rankingsModalStatusEl.textContent = "Failed to load top ten rankings.";
-          renderErrorRow(personalTopTenBodyEl, 6);
-          renderErrorRow(globalTopTenBodyEl, 6);
+          renderErrorRow(personalTopTenBodyEl, 7);
+          renderErrorRow(globalTopTenBodyEl, 7);
         }
       }
 
