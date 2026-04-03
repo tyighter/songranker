@@ -1211,15 +1211,31 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
     last_network_error: YouTubeLookupError | None = None
     saw_known_non_embeddable = False
     saw_unknown_embeddability = False
+
+    def _ranked_verified_candidate_ids(candidates: list[dict[str, str]]) -> list[str]:
+        ranked: list[str] = []
+        for candidate in candidates:
+            video_id = candidate.get("video_id")
+            confidence = candidate.get("embeddability_confidence")
+            if confidence != YOUTUBE_CONFIDENCE_VERIFIED or not _is_valid_youtube_video_id(video_id):
+                continue
+            if video_id not in ranked:
+                ranked.append(video_id)
+        return ranked
+
     for provider in providers:
         try:
             embeddable_matches = provider.search(query, embeddable_only=True)
             if embeddable_matches:
+                ranked_candidates = _ranked_verified_candidate_ids(embeddable_matches)
+                if not ranked_candidates:
+                    continue
                 best_match = embeddable_matches[0]
-                video_id = best_match.get("video_id")
+                video_id = ranked_candidates[0]
                 result = {
                     "result": "ok",
                     "video_id": video_id,
+                    "video_candidates": ranked_candidates,
                     "source": provider.name,
                     "provider": best_match.get("provider", provider.name),
                     "embeddability_confidence": best_match.get(
@@ -1238,12 +1254,14 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                     provider=result["provider"],
                     query=query,
                     video_id=video_id,
+                    video_candidates=ranked_candidates,
                     embeddability_confidence=result["embeddability_confidence"],
                 )
                 return result
 
             any_matches = provider.search(query, embeddable_only=False)
             if any_matches:
+                ranked_candidates = _ranked_verified_candidate_ids(any_matches)
                 for candidate in any_matches:
                     confidence = candidate.get("embeddability_confidence", YOUTUBE_CONFIDENCE_UNVERIFIED)
                     if confidence == YOUTUBE_CONFIDENCE_VERIFIED:
@@ -1251,6 +1269,7 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                         result = {
                             "result": "ok",
                             "video_id": video_id,
+                            "video_candidates": ranked_candidates or ([video_id] if _is_valid_youtube_video_id(video_id) else []),
                             "source": provider.name,
                             "provider": candidate.get("provider", provider.name),
                             "embeddability_confidence": YOUTUBE_CONFIDENCE_VERIFIED,
@@ -1266,6 +1285,7 @@ def _fetch_first_youtube_video(db: Session, title: str, artist: str) -> dict[str
                             provider=result["provider"],
                             query=query,
                             video_id=video_id,
+                            video_candidates=result["video_candidates"],
                             embeddability_confidence=result["embeddability_confidence"],
                         )
                         return result
@@ -2141,8 +2161,16 @@ def get_first_youtube_video(
                 status_code=502,
                 detail={"code": "invalid_video_id", "message": "Provider returned an invalid YouTube video id."},
             )
+        raw_candidates = result.get("video_candidates")
+        video_candidates = [
+            candidate for candidate in (raw_candidates if isinstance(raw_candidates, list) else [])
+            if _is_valid_youtube_video_id(candidate)
+        ]
+        if video_id not in video_candidates:
+            video_candidates.insert(0, video_id)
         return {
             "video_id": video_id,
+            "video_candidates": video_candidates,
             "embeddability_confidence": result.get("embeddability_confidence", YOUTUBE_CONFIDENCE_UNVERIFIED),
             "provider": result.get("provider", result.get("source")),
         }
