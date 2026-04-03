@@ -45,9 +45,6 @@ DEFAULT_RATING = 1000
 ELO_K = 24
 DEFAULT_POPULARITY_WEIGHT = 0.35
 POPULARITY_RATING_COUNT_CAP = 500
-POPULARITY_USER_RATING_MAX = 10.0
-POPULARITY_COUNT_WEIGHT = 0.75
-POPULARITY_USER_RATING_WEIGHT = 0.25
 SESSION_COOKIE_NAME = "songranker_session"
 OIDC_LOGIN_COOKIE_NAME = "songranker_oidc_login"
 OIDC_LOGIN_TTL_SECONDS = 600
@@ -642,21 +639,14 @@ def _parse_plex_rating_count(raw_value: str | None) -> int | None:
 
 def _song_selection_weight(song: Song, popularity_weight: float) -> float:
     rating_count = song.plex_rating_count
-    user_rating = song.plex_user_rating
 
     count_component = 0.0
     if rating_count is not None:
         normalized_count = min(rating_count, POPULARITY_RATING_COUNT_CAP) / POPULARITY_RATING_COUNT_CAP
         count_component = max(0.0, min(1.0, normalized_count))
 
-    rating_component = 0.0
-    if user_rating is not None and POPULARITY_USER_RATING_MAX > 0:
-        normalized_rating = user_rating / POPULARITY_USER_RATING_MAX
-        rating_component = max(0.0, min(1.0, normalized_rating))
-
-    blended_signal = (count_component * POPULARITY_COUNT_WEIGHT) + (rating_component * POPULARITY_USER_RATING_WEIGHT)
     effective_popularity_weight = _clamp_popularity_weight(popularity_weight)
-    return max(0.0001, 1.0 + (effective_popularity_weight * blended_signal))
+    return max(0.0001, 1.0 + (effective_popularity_weight * count_component))
 
 
 def _weighted_song_choice(
