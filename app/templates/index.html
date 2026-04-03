@@ -145,12 +145,12 @@
                 <thead>
                   <tr>
                     <th><button type="button" class="sort-btn btn-ghost" data-sort="rank">Rank</button></th>
-                    <th><button type="button" class="sort-btn btn-ghost" data-sort="score">Score</button></th>
-                    <th><button type="button" class="sort-btn btn-ghost" data-sort="vote_count">Matchups</button></th>
-                    <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist</button></th>
-                    <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="album">Album</button></th>
+                    <th>Song Name</th>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="artist">Artist Name</button></th>
                     <th class="hide-sm"><button type="button" class="sort-btn btn-ghost" data-sort="year">Year</button></th>
-                    <th>Title</th>
+                    <th><button type="button" class="sort-btn btn-ghost" data-sort="vote_count">Total Matchups</button></th>
+                    <th>Wins</th>
+                    <th>Losses</th>
                   </tr>
                 </thead>
                 <tbody id="rankings-body"></tbody>
@@ -316,12 +316,12 @@
           <thead>
             <tr>
               <th>Rank</th>
-              <th>Score</th>
-              <th>Matchups</th>
-              <th>Artist</th>
-              <th class="hide-sm">Album</th>
+              <th>Song Name</th>
+              <th>Artist Name</th>
               <th class="hide-sm">Year</th>
-              <th>Title</th>
+              <th>Total Matchups</th>
+              <th>Wins</th>
+              <th>Losses</th>
             </tr>
           </thead>
           <tbody id="personal-top-ten-body"></tbody>
@@ -334,12 +334,12 @@
           <thead>
             <tr>
               <th>Rank</th>
-              <th>Score</th>
-              <th>Matchups</th>
-              <th>Artist</th>
-              <th class="hide-sm">Album</th>
+              <th>Song Name</th>
+              <th>Artist Name</th>
               <th class="hide-sm">Year</th>
-              <th>Title</th>
+              <th>Total Matchups</th>
+              <th>Wins</th>
+              <th>Losses</th>
             </tr>
           </thead>
           <tbody id="global-top-ten-body"></tbody>
@@ -1058,12 +1058,12 @@
           rankingsBodyEl.innerHTML = rows.map((row) => `
             <tr>
               <td>${row.rank}</td>
-              <td>${row.score}</td>
-              <td>${row.vote_count || 0}</td>
-              <td>${row.artist}</td>
-              <td class="hide-sm">${row.album || ""}</td>
-              <td class="hide-sm">${row.year || ""}</td>
               <td>${row.title}</td>
+              <td>${row.artist}</td>
+              <td class="hide-sm">${row.year || ""}</td>
+              <td>${row.vote_count || 0}</td>
+              <td>${row.winner_count || 0}</td>
+              <td>${row.loser_count || 0}</td>
             </tr>
           `).join("");
           statusEl.textContent = "Rankings updated.";
@@ -1077,12 +1077,12 @@
         tableBodyEl.innerHTML = (rows || []).map((row) => `
           <tr>
             <td>${row.rank}</td>
-            <td>${row.score}</td>
-            <td>${row.vote_count || 0}</td>
-            <td>${row.artist}</td>
-            <td class="hide-sm">${row.album || ""}</td>
-            <td class="hide-sm">${row.year || ""}</td>
             <td>${row.title}</td>
+            <td>${row.artist}</td>
+            <td class="hide-sm">${row.year || ""}</td>
+            <td>${row.vote_count || 0}</td>
+            <td>${row.winner_count || 0}</td>
+            <td>${row.loser_count || 0}</td>
           </tr>
         `).join("");
       }
