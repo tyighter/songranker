@@ -20,6 +20,20 @@ The app will be available at:
 - http://0.0.0.0:2112
 - http://localhost:2112
 
+### Optional: configure Google OIDC sign-in
+
+If you want "Continue with Google" to be active, configure Google OAuth credentials before starting the container:
+
+1. Create a `.env` file (you can copy from `.env.example`).
+2. Fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+3. Set `GOOGLE_REDIRECT_URI` to your callback URL (for local default: `http://localhost:2112/api/auth/google/callback`).
+4. In Google Cloud Console, add the same callback URL under your OAuth client's **Authorized redirect URIs**.
+5. Restart the app:
+
+```bash
+docker compose up --build
+```
+
 ### 2) Migration behavior (container startup)
 
 Migrations are already executed automatically at container startup by the `Dockerfile` command (`alembic upgrade head` before `uvicorn`).
@@ -106,6 +120,7 @@ You can configure the DB with either:
 - or the PostgreSQL parts: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 - `YOUTUBE_DATA_API_KEY` to enable verified embeddable YouTube lookups via YouTube Data API v3.
 - `YOUTUBE_SEARCH_FALLBACK_PROVIDER` to control non-API fallbacks (`disabled` by default; set to `youtube_html_scrape` only if you explicitly want unverified fallback candidates).
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` to enable Google OIDC sign-in/account linking.
 
 By default, `docker-compose.yml` runs a single container and stores SQLite data at `/data/songranker.db`. That path is mounted from the named Docker volume `songranker_data`, so database state persists across container rebuilds/restarts until you remove the volume.
 
