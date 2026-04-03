@@ -17,7 +17,7 @@ from urllib.parse import quote, unquote, urlencode, urljoin
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -56,6 +56,11 @@ logger = logging.getLogger(__name__)
 YOUTUBE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _youtube_lookup_cache_lock = threading.Lock()
 _youtube_lookup_cache: dict[tuple[str, str], dict[str, Any]] = {}
+ALLOWED_AVATAR_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+AVATAR_EXTENSION_BY_MIME = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024
+AVATAR_UPLOAD_DIR = Path("app/static/uploads/avatars")
+DEFAULT_AVATAR_URL = "/static/default-avatar.svg"
 
 app = FastAPI(title="SongRanker")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -347,6 +352,27 @@ def _derive_username_from_email(db: Session, email: str) -> str:
         candidate = f"{base[: max(1, 64 - len(suffix_text))]}{suffix_text}"
         suffix += 1
     return candidate
+
+
+def _build_avatar_url(current_user: User | None) -> str:
+    if current_user is None or not current_user.profile_image_path:
+        return DEFAULT_AVATAR_URL
+    return f"/static/{current_user.profile_image_path}"
+
+
+def _profile_photo_redirect(message: str, status: str = "error") -> RedirectResponse:
+    encoded_message = quote(message)
+    return RedirectResponse(url=f"/?avatar_status={status}&avatar_message={encoded_message}", status_code=303)
+
+
+def _sniff_image_mime(data: bytes) -> str | None:
+    if len(data) >= 8 and data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(data) >= 3 and data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _session_redirect(url: str, token: str) -> RedirectResponse:
@@ -1400,6 +1426,12 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
     auth_error = request.query_params.get("auth_error")
     auth_detail = request.query_params.get("detail")
     auth_notice, auth_notice_class = _friendly_auth_message(auth_error, auth_detail)
+    avatar_status = request.query_params.get("avatar_status", "").strip().lower()
+    avatar_message_raw = request.query_params.get("avatar_message")
+    avatar_message = unquote(avatar_message_raw).strip() if avatar_message_raw else ""
+    avatar_notice_class = "status-error"
+    if avatar_status == "success":
+        avatar_notice_class = "status-success"
     google_identity_linked = False
     if current_user is not None:
         google_identity_linked = (
@@ -1427,6 +1459,9 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             "users": users,
             "notice": auth_notice,
             "notice_class": auth_notice_class,
+            "avatar_url": _build_avatar_url(current_user),
+            "avatar_message": avatar_message,
+            "avatar_notice_class": avatar_notice_class,
         },
     )
 
@@ -1793,6 +1828,62 @@ def unlink_provider(
     )
     _log_auth_event("provider_unlink", outcome="success", user_id=current_user.id, provider=normalized_provider)
     return _session_redirect(url="/", token=token)
+
+
+@app.post("/api/profile/photo")
+async def upload_profile_photo(
+    profile_photo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_current_user),
+):
+    content_type = (profile_photo.content_type or "").lower().strip()
+    if content_type not in ALLOWED_AVATAR_MIME_TYPES:
+        return _profile_photo_redirect("Invalid file type. Use PNG, JPEG, or WEBP.")
+
+    try:
+        raw = await profile_photo.read(MAX_AVATAR_SIZE_BYTES + 1)
+    except Exception:
+        return _profile_photo_redirect("Could not read uploaded file.")
+    finally:
+        await profile_photo.close()
+
+    if not raw:
+        return _profile_photo_redirect("Uploaded file is empty.")
+
+    if len(raw) > MAX_AVATAR_SIZE_BYTES:
+        return _profile_photo_redirect("Profile photo is too large. Max size is 2 MB.")
+
+    sniffed_mime = _sniff_image_mime(raw)
+    if sniffed_mime is None or sniffed_mime not in ALLOWED_AVATAR_MIME_TYPES:
+        return _profile_photo_redirect("File does not appear to be a valid image.")
+
+    if content_type != sniffed_mime:
+        return _profile_photo_redirect("Declared file type does not match the image data.")
+
+    file_hash = hashlib.sha256(raw).hexdigest()[:16]
+    entropy = secrets.token_hex(6)
+    extension = AVATAR_EXTENSION_BY_MIME[sniffed_mime]
+    user_dir = AVATAR_UPLOAD_DIR / str(current_user.id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    output_name = f"{file_hash}-{entropy}{extension}"
+    output_path = user_dir / output_name
+    output_path.write_bytes(raw)
+
+    previous_relative_path = current_user.profile_image_path
+    current_user.profile_image_path = f"uploads/avatars/{current_user.id}/{output_name}"
+    current_user.profile_image_mime = sniffed_mime
+    current_user.profile_image_size_bytes = len(raw)
+    db.commit()
+
+    if previous_relative_path and previous_relative_path != current_user.profile_image_path:
+        if previous_relative_path.startswith(f"uploads/avatars/{current_user.id}/"):
+            previous_path = Path("app/static") / previous_relative_path
+            try:
+                previous_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Unable to delete old avatar file: %s", previous_path)
+
+    return _profile_photo_redirect("Profile photo updated.", status="success")
 
 
 @app.post("/api/setup/plex")

@@ -623,6 +623,34 @@ button:active {
   margin: 1rem 0 0.6rem;
 }
 
+.profile-avatar-hero {
+  margin-top: 0.35rem;
+}
+
+.profile-avatar-image {
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid rgba(63, 246, 255, 0.7);
+  background: rgba(17, 10, 44, 0.9);
+  box-shadow: 0 0 0 2px rgba(255, 79, 216, 0.24);
+}
+
+.profile-avatar-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+  margin-bottom: 0.6rem;
+}
+
+.profile-avatar-form label {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 220px;
+}
+
 .section-task-hint {
   margin: 0 0 0.7rem;
   color: var(--text-muted);
