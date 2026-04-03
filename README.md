@@ -26,8 +26,11 @@ If you want "Continue with Google" to be active, configure Google OAuth credenti
 
 1. Create a `.env` file (you can copy from `.env.example`).
 2. Fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-3. Set `GOOGLE_REDIRECT_URI` to your callback URL (for local default: `http://localhost:2112/api/auth/google/callback`).
-4. In Google Cloud Console, add the same callback URL under your OAuth client's **Authorized redirect URIs**.
+3. Set `GOOGLE_REDIRECT_URI` to your callback URL.
+   - `localhost` only works when your browser and SongRanker server are running on the same machine.
+   - LAN example: `http://192.168.111.77:2112/api/auth/google/callback`
+   - WAN/domain example: `https://songranker.example.com/api/auth/google/callback`
+4. In Google Cloud Console, add each callback URL you plan to use under your OAuth client's **Authorized redirect URIs** (every URI must be listed).
 5. Restart the app:
 
 ```bash
