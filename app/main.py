@@ -485,7 +485,7 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
             title = track.attrib.get("title", "Unknown")
             artist = track.attrib.get("grandparentTitle") or track.attrib.get("originalTitle") or "Unknown"
             album = track.attrib.get("parentTitle")
-            year_raw = track.attrib.get("year")
+            year_raw = track.attrib.get("year") or track.attrib.get("parentYear")
             year = int(year_raw) if year_raw and year_raw.isdigit() else None
             if year is None:
                 parent_rating_key = track.attrib.get("parentRatingKey")
@@ -520,8 +520,9 @@ def _sync_tracks_from_plex(db: Session, app_settings: AppSettings) -> dict[str, 
                 existing.title = title
                 existing.artist = artist
                 existing.album = album
-                existing.year = year
-                existing.decade = _decade_for_year(year)
+                resolved_year = year if year is not None else existing.year
+                existing.year = resolved_year
+                existing.decade = _decade_for_year(resolved_year)
                 existing.source_uri = source_uri
                 existing.plex_user_rating = plex_user_rating
                 existing.plex_rating_count = plex_rating_count
