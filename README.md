@@ -142,7 +142,7 @@ By default, `docker-compose.yml` runs a single container and stores SQLite data 
   - JSON body: `plex_music_section_id`.
   - Persists the selected Plex music library section.
 
-`popularity_weight` scales track selection boost linearly from `plex_rating_count=0` to a hard cap of `500,000,000` ratings; counts above the cap are treated as the cap.
+`popularity_weight` scales track selection boost using a log transform (`log1p`) from `plex_rating_count=0` to a cap of `1,000,000` ratings; counts above the cap are treated as the cap.
 
 A periodic background job also attempts Plex resync hourly once setup is complete.
 
