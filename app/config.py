@@ -24,6 +24,7 @@ class Settings:
     google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
     google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "")
+    google_redirect_origins: str = os.getenv("GOOGLE_REDIRECT_ORIGINS", "")
     google_oidc_discovery_url: str = os.getenv(
         "GOOGLE_OIDC_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration"
     )
@@ -63,6 +64,17 @@ class Settings:
             return None
         normalized = self.session_cookie_domain.strip()
         return normalized or None
+
+    @property
+    def normalized_google_redirect_origins(self) -> list[str]:
+        if not self.google_redirect_origins:
+            return []
+        origins: list[str] = []
+        for raw_origin in self.google_redirect_origins.split(","):
+            origin = raw_origin.strip().rstrip("/")
+            if origin:
+                origins.append(origin)
+        return origins
 
 
 settings = Settings()

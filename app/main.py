@@ -319,6 +319,61 @@ def _decode_signed_cookie(raw_value: str | None) -> dict[str, Any] | None:
     return decoded
 
 
+def _parse_forwarded_header(forwarded_header: str | None) -> tuple[str | None, str | None]:
+    if not forwarded_header:
+        return (None, None)
+    first_hop = forwarded_header.split(",", 1)[0].strip()
+    if not first_hop:
+        return (None, None)
+
+    proto: str | None = None
+    host: str | None = None
+    for part in first_hop.split(";"):
+        key, separator, value = part.partition("=")
+        if not separator:
+            continue
+        normalized_key = key.strip().lower()
+        normalized_value = value.strip().strip('"')
+        if normalized_key == "proto" and normalized_value:
+            proto = normalized_value
+        if normalized_key == "host" and normalized_value:
+            host = normalized_value
+    return (proto, host)
+
+
+def _build_google_redirect_uri(request: StarletteRequest) -> str:
+    callback_path = "/api/auth/google/callback"
+    allowed_origins = settings.normalized_google_redirect_origins
+    if allowed_origins:
+        forwarded_proto, forwarded_host = _parse_forwarded_header(request.headers.get("forwarded"))
+        proxy_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        proxy_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+
+        request_scheme = (forwarded_proto or proxy_proto or request.url.scheme).strip().lower()
+        request_host = (forwarded_host or proxy_host or request.headers.get("host", "")).strip()
+        if not request_scheme or not request_host:
+            raise HTTPException(status_code=400, detail="Unable to determine request origin for Google callback")
+
+        request_origin = f"{request_scheme}://{request_host}".rstrip("/")
+        if request_origin not in allowed_origins:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Request origin '{request_origin}' is not allowed for Google OAuth callback. "
+                    "Update GOOGLE_REDIRECT_ORIGINS to include this origin."
+                ),
+            )
+        return f"{request_origin}{callback_path}"
+
+    if settings.google_redirect_uri:
+        return settings.google_redirect_uri
+
+    raise HTTPException(
+        status_code=503,
+        detail="Google OIDC is not configured; set GOOGLE_REDIRECT_URI or GOOGLE_REDIRECT_ORIGINS",
+    )
+
+
 def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
     data = None
     headers = {"Accept": "application/json"}
@@ -1546,7 +1601,9 @@ def index(request: StarletteRequest, db: Session = Depends(get_db)):
             "show_onboarding_helper": show_onboarding_helper,
             "google_identity_linked": google_identity_linked,
             "google_auth_available": bool(
-                settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri
+                settings.google_client_id
+                and settings.google_client_secret
+                and (settings.google_redirect_uri or settings.normalized_google_redirect_origins)
             ),
             "local_signin_enabled": True,
             "users": users,
@@ -1633,14 +1690,14 @@ def signin(
 
 
 @app.get("/api/auth/google/start")
-def google_auth_start(db: Session = Depends(get_db)):
+def google_auth_start(request: StarletteRequest, db: Session = Depends(get_db)):
     missing_fields: list[str] = []
     if not settings.google_client_id:
         missing_fields.append("GOOGLE_CLIENT_ID")
     if not settings.google_client_secret:
         missing_fields.append("GOOGLE_CLIENT_SECRET")
-    if not settings.google_redirect_uri:
-        missing_fields.append("GOOGLE_REDIRECT_URI")
+    if not settings.google_redirect_uri and not settings.normalized_google_redirect_origins:
+        missing_fields.append("GOOGLE_REDIRECT_URI or GOOGLE_REDIRECT_ORIGINS")
     if missing_fields:
         raise HTTPException(
             status_code=503,
@@ -1656,10 +1713,11 @@ def google_auth_start(db: Session = Depends(get_db)):
     nonce = secrets.token_urlsafe(32)
     now = int(datetime.now(timezone.utc).timestamp())
     signed_state = _encode_signed_cookie({"state": state, "nonce": nonce, "exp": now + OIDC_LOGIN_TTL_SECONDS})
+    redirect_uri = _build_google_redirect_uri(request)
 
     params = {
         "client_id": settings.google_client_id,
-        "redirect_uri": settings.google_redirect_uri,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
@@ -1744,7 +1802,7 @@ def google_auth_callback(
                 "code": code,
                 "client_id": settings.google_client_id,
                 "client_secret": settings.google_client_secret,
-                "redirect_uri": settings.google_redirect_uri,
+                "redirect_uri": _build_google_redirect_uri(request),
                 "grant_type": "authorization_code",
             },
         )
